@@ -4,8 +4,20 @@ import { initSandboxFromConfig } from "./sandbox/bashlet.js";
 import { createMastraInstance, buildIncidentPrompt, getDebuggerAgent } from "./mastra/index.js";
 import { runTUI } from "./tui/app.jsx";
 import { startWebhookServer } from "./server/webhook.js";
+import {
+  loadStoredConfig,
+  saveStoredConfig,
+  getConfigPath,
+  maskApiKey,
+  type StoredConfig,
+} from "./cli/config.js";
+import type { AIProvider } from "./config.js";
 
 interface CliArgs {
+  command: "run" | "config";
+  configAction?: "set" | "get" | "list" | "path";
+  configKey?: string;
+  configValue?: string;
   webhookOnly: boolean;
   incident: string | null;
   help: boolean;
@@ -15,11 +27,21 @@ interface CliArgs {
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
   const result: CliArgs = {
+    command: "run",
     webhookOnly: false,
     incident: null,
     help: false,
     host: false,
   };
+
+  // Check for config subcommand
+  if (args[0] === "config") {
+    result.command = "config";
+    result.configAction = args[1] as "set" | "get" | "list" | "path";
+    result.configKey = args[2];
+    result.configValue = args[3];
+    return result;
+  }
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -44,12 +66,27 @@ function printHelp(): void {
 
 USAGE:
   triagent [OPTIONS]
+  triagent config <action> [key] [value]
 
 OPTIONS:
   -h, --help          Show this help message
   -w, --webhook-only  Run only the webhook server (no TUI)
   -i, --incident      Direct incident input (runs once and exits)
       --host          Run commands on host machine (no sandbox)
+
+CONFIG COMMANDS:
+  triagent config set <key> <value>  Set a configuration value
+  triagent config get <key>          Get a configuration value
+  triagent config list               List all configuration values
+  triagent config path               Show config file path
+
+CONFIG KEYS:
+  aiProvider     - AI provider (openai, anthropic, google)
+  aiModel        - Model ID (e.g., gpt-4o, claude-sonnet-4-20250514)
+  apiKey         - API key for the provider
+  webhookPort    - Webhook server port (default: 3000)
+  codebasePath   - Path to codebase (default: ./)
+  kubeConfigPath - Kubernetes config path (default: ~/.kube)
 
 MODES:
   Interactive (default):
@@ -132,6 +169,79 @@ async function runDirectIncident(description: string): Promise<void> {
   }
 }
 
+async function handleConfigCommand(args: CliArgs): Promise<void> {
+  const validKeys: (keyof StoredConfig)[] = [
+    "aiProvider",
+    "aiModel",
+    "apiKey",
+    "webhookPort",
+    "codebasePath",
+    "kubeConfigPath",
+  ];
+
+  switch (args.configAction) {
+    case "set": {
+      if (!args.configKey || args.configValue === undefined) {
+        console.error("Usage: triagent config set <key> <value>");
+        process.exit(1);
+      }
+      if (!validKeys.includes(args.configKey as keyof StoredConfig)) {
+        console.error(`Invalid key: ${args.configKey}`);
+        console.error(`Valid keys: ${validKeys.join(", ")}`);
+        process.exit(1);
+      }
+      const config = await loadStoredConfig();
+      let value: string | number = args.configValue;
+      if (args.configKey === "webhookPort") {
+        value = parseInt(args.configValue, 10);
+      }
+      (config as Record<string, string | number>)[args.configKey] = value;
+      await saveStoredConfig(config);
+      console.log(`✅ Set ${args.configKey}`);
+      break;
+    }
+    case "get": {
+      if (!args.configKey) {
+        console.error("Usage: triagent config get <key>");
+        process.exit(1);
+      }
+      const config = await loadStoredConfig();
+      const value = config[args.configKey as keyof StoredConfig];
+      if (value === undefined) {
+        console.log(`${args.configKey}: (not set)`);
+      } else if (args.configKey === "apiKey") {
+        console.log(`${args.configKey}: ${maskApiKey(String(value))}`);
+      } else {
+        console.log(`${args.configKey}: ${value}`);
+      }
+      break;
+    }
+    case "list": {
+      const config = await loadStoredConfig();
+      console.log("Current configuration:\n");
+      for (const key of validKeys) {
+        const value = config[key];
+        if (value === undefined) {
+          console.log(`  ${key}: (not set)`);
+        } else if (key === "apiKey") {
+          console.log(`  ${key}: ${maskApiKey(String(value))}`);
+        } else {
+          console.log(`  ${key}: ${value}`);
+        }
+      }
+      break;
+    }
+    case "path": {
+      const path = await getConfigPath();
+      console.log(path);
+      break;
+    }
+    default:
+      console.error("Usage: triagent config <set|get|list|path> [key] [value]");
+      process.exit(1);
+  }
+}
+
 async function main(): Promise<void> {
   const args = parseArgs();
 
@@ -140,14 +250,20 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Handle config command
+  if (args.command === "config") {
+    await handleConfigCommand(args);
+    process.exit(0);
+  }
+
   // Load configuration
   let config;
   try {
-    config = loadConfig();
+    config = await loadConfig();
   } catch (error) {
     console.error("❌ Configuration error:", error);
-    console.error("\nMake sure you have set up your .env file with API keys.");
-    console.error("See .env.example for required variables.");
+    console.error("\nRun 'triagent config set apiKey <your-key>' to configure.");
+    console.error("Or set environment variables (see --help for details).");
     process.exit(1);
   }
 

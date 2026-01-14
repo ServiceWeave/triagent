@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { resolve } from "path";
 import { homedir } from "os";
+import { loadStoredConfig, type StoredConfig } from "./cli/config.js";
 
 const AIProviderSchema = z.enum(["openai", "anthropic", "google"]);
 export type AIProvider = z.infer<typeof AIProviderSchema>;
@@ -23,7 +24,10 @@ function expandPath(path: string): string {
   return resolve(path);
 }
 
-function getApiKey(provider: AIProvider): string {
+function getApiKey(provider: AIProvider, stored: StoredConfig): string {
+  // Check stored config first, then env vars
+  if (stored.apiKey) return stored.apiKey;
+
   switch (provider) {
     case "openai":
       return process.env.OPENAI_API_KEY || "";
@@ -34,16 +38,18 @@ function getApiKey(provider: AIProvider): string {
   }
 }
 
-export function loadConfig(): Config {
-  const provider = (process.env.AI_PROVIDER || "anthropic") as AIProvider;
+export async function loadConfig(): Promise<Config> {
+  const stored = await loadStoredConfig();
+
+  const provider = (process.env.AI_PROVIDER || stored.aiProvider || "anthropic") as AIProvider;
 
   const rawConfig = {
     aiProvider: provider,
-    aiModel: process.env.AI_MODEL || getDefaultModel(provider),
-    apiKey: getApiKey(provider),
-    webhookPort: parseInt(process.env.WEBHOOK_PORT || "3000", 10),
-    codebasePath: expandPath(process.env.CODEBASE_PATH || "./"),
-    kubeConfigPath: expandPath(process.env.KUBE_CONFIG_PATH || "~/.kube"),
+    aiModel: process.env.AI_MODEL || stored.aiModel || getDefaultModel(provider),
+    apiKey: getApiKey(provider, stored),
+    webhookPort: parseInt(process.env.WEBHOOK_PORT || String(stored.webhookPort || 3000), 10),
+    codebasePath: expandPath(process.env.CODEBASE_PATH || stored.codebasePath || "./"),
+    kubeConfigPath: expandPath(process.env.KUBE_CONFIG_PATH || stored.kubeConfigPath || "~/.kube"),
   };
 
   const result = ConfigSchema.safeParse(rawConfig);
