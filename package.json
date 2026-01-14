@@ -33,7 +33,7 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "webhook": "bun run src/index.ts --webhook-only",
-    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "build": "bun run scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "bun run typecheck"
   },
