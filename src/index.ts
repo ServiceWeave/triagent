@@ -9,6 +9,7 @@ interface CliArgs {
   webhookOnly: boolean;
   incident: string | null;
   help: boolean;
+  host: boolean;
 }
 
 function parseArgs(): CliArgs {
@@ -17,6 +18,7 @@ function parseArgs(): CliArgs {
     webhookOnly: false,
     incident: null,
     help: false,
+    host: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -28,6 +30,8 @@ function parseArgs(): CliArgs {
       result.incident = args[++i] || null;
     } else if (arg === "--help" || arg === "-h") {
       result.help = true;
+    } else if (arg === "--host") {
+      result.host = true;
     }
   }
 
@@ -45,6 +49,7 @@ OPTIONS:
   -h, --help          Show this help message
   -w, --webhook-only  Run only the webhook server (no TUI)
   -i, --incident      Direct incident input (runs once and exits)
+      --host          Run commands on host machine (no sandbox)
 
 MODES:
   Interactive (default):
@@ -148,8 +153,11 @@ async function main(): Promise<void> {
 
   // Initialize sandbox and Mastra
   try {
-    initSandboxFromConfig(config);
+    initSandboxFromConfig(config, args.host);
     createMastraInstance(config);
+    if (args.host) {
+      console.log("⚠️  Running in host mode (no sandbox)\n");
+    }
   } catch (error) {
     console.error("❌ Initialization error:", error);
     process.exit(1);
