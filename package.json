@@ -1,0 +1,57 @@
+{
+  "name": "triagent",
+  "version": "0.1.0",
+  "description": "AI-powered Kubernetes debugging agent with terminal UI",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "triagent": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "bunfig.toml"
+  ],
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "keywords": [
+    "kubernetes",
+    "k8s",
+    "debugging",
+    "ai",
+    "agent",
+    "cli",
+    "tui",
+    "devops",
+    "sre"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/triagent.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "webhook": "bun run src/index.ts --webhook-only",
+    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "bun run typecheck"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.2.0",
+    "@ai-sdk/google": "^1.2.0",
+    "@ai-sdk/openai": "^1.3.0",
+    "@bashlet/sdk": "^0.1.0-alpha1",
+    "@mastra/core": "^1.0.0-beta.21",
+    "@opentui/core": "^0.1.72",
+    "@opentui/solid": "^0.1.72",
+    "hono": "^4.6.0",
+    "solid-js": "^1.9.10",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "bun-types": "^1.2.0"
+  }
+}
