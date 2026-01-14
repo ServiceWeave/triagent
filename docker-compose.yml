@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  triagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: triagent
+    restart: unless-stopped
+    ports:
+      - "${WEBHOOK_PORT:-3000}:3000"
+    volumes:
+      # Mount your codebase for file analysis
+      - ${CODEBASE_PATH:-./}:/workspace:ro
+      # Mount Kubernetes config for cluster access
+      - ${KUBE_CONFIG_PATH:-~/.kube}:/root/.kube:ro
+    environment:
+      # AI Provider configuration
+      - AI_PROVIDER=${AI_PROVIDER:-anthropic}
+      - AI_MODEL=${AI_MODEL:-claude-3-5-sonnet-20241022}
+      # API Keys (set in .env file or pass via environment)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      # Paths inside container
+      - CODEBASE_PATH=/workspace
+      - KUBE_CONFIG_PATH=/root/.kube
+      - WEBHOOK_PORT=3000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    # For running in TUI mode (interactive), use:
+    # docker-compose run --rm -it triagent bun run src/index.ts
+    # Default runs in webhook mode
+
+  # Optional: Run a specific incident investigation
+  triagent-incident:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - incident
+    volumes:
+      - ${CODEBASE_PATH:-./}:/workspace:ro
+      - ${KUBE_CONFIG_PATH:-~/.kube}:/root/.kube:ro
+    environment:
+      - AI_PROVIDER=${AI_PROVIDER:-anthropic}
+      - AI_MODEL=${AI_MODEL:-claude-3-5-sonnet-20241022}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_GENERATIVE_AI_API_KEY=${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      - CODEBASE_PATH=/workspace
+      - KUBE_CONFIG_PATH=/root/.kube
+    entrypoint: ["bun", "run", "src/index.ts"]
+    command: ["--incident", "${INCIDENT_DESCRIPTION:-pods crashing}"]
