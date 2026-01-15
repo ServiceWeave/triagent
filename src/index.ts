@@ -1,8 +1,12 @@
 #!/usr/bin/env bun
+// Load solid JSX plugin before any TSX imports
+import { plugin } from "bun";
+import solidPlugin from "@opentui/solid/bun-plugin";
+plugin(solidPlugin);
+
 import { loadConfig } from "./config.js";
 import { initSandboxFromConfig } from "./sandbox/bashlet.js";
 import { createMastraInstance, buildIncidentPrompt, getDebuggerAgent } from "./mastra/index.js";
-import { runTUI } from "./tui/app.jsx";
 import { startWebhookServer } from "./server/webhook.js";
 import {
   loadStoredConfig,
@@ -297,6 +301,8 @@ async function main(): Promise<void> {
   } else {
     // Interactive TUI mode
     console.log("Starting Triagent TUI...\n");
+    // Dynamic import to ensure solid plugin is loaded first
+    const { runTUI } = await import("./tui/app.jsx");
     const tui = await runTUI();
 
     // Handle graceful shutdown
