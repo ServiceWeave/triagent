@@ -46,7 +46,9 @@
     "@opentui/core": "^0.1.72",
     "@opentui/solid": "^0.1.72",
     "hono": "^4.6.0",
+    "opentui-spinner": "^0.0.6",
     "solid-js": "^1.9.10",
+    "triagent": "^0.1.0-alpha1",
     "zod": "^3.24.0"
   },
   "devDependencies": {

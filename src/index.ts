@@ -152,7 +152,12 @@ async function runDirectIncident(description: string): Promise<void> {
         if (toolCalls && toolCalls.length > 0) {
           const toolCall = toolCalls[0];
           const toolName = "toolName" in toolCall ? toolCall.toolName : "tool";
-          console.log(`\n[Tool: ${toolName}]\n`);
+          const args = "args" in toolCall ? toolCall.args : {};
+          console.log(`\n[Tool: ${toolName}]`);
+          if (args && typeof args === "object" && "command" in args) {
+            console.log(`$ ${args.command}`);
+          }
+          console.log();
         }
       },
     });
