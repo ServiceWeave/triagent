@@ -163,11 +163,13 @@ export const InvestigationResultSchema = z.object({
 export type InvestigationResult = z.infer<typeof InvestigationResultSchema>;
 
 export function createDebuggerAgent(config: Config) {
-  // Construct model config - use OpenAICompatibleConfig if baseUrl is set
+  // Construct model config with API key and optional base URL
   const modelId = `${config.aiProvider}/${config.aiModel}` as const;
-  const modelConfig = config.baseUrl
-    ? { id: modelId, url: config.baseUrl }
-    : modelId;
+  const modelConfig = {
+    id: modelId,
+    apiKey: config.apiKey,
+    ...(config.baseUrl && { url: config.baseUrl }),
+  };
 
   return new Agent({
     id: "kubernetes-debugger",
