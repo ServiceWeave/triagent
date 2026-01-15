@@ -139,10 +139,9 @@ function App() {
         maxSteps: 20,
         onStepFinish: ({ toolCalls }) => {
           if (toolCalls && toolCalls.length > 0) {
-            const toolCall = toolCalls[0] as { payload?: { toolName?: string; args?: unknown } };
-            const payload = toolCall.payload;
-            const toolName = payload?.toolName ?? "tool";
-            const args = payload?.args ?? {};
+            const toolCall = toolCalls[0] as { toolName?: string; args?: unknown };
+            const toolName = toolCall.toolName ?? "tool";
+            const args = toolCall.args ?? {};
 
             // Build display command based on tool type
             const command = buildDisplayCommand(toolName, args);
