@@ -1,7 +1,7 @@
 import { Bashlet } from "@bashlet/sdk";
 import { $ } from "bun";
 import { readFile as fsReadFile, readdir } from "fs/promises";
-import type { Config } from "../config.js";
+import type { Config, CodebaseEntry } from "../config.js";
 
 export interface CommandResult {
   stdout: string;
@@ -10,7 +10,7 @@ export interface CommandResult {
 }
 
 export interface SandboxOptions {
-  codebasePath: string;
+  codebasePaths: CodebaseEntry[];
   kubeConfigPath: string;
   timeout?: number;
   useHost?: boolean;
@@ -22,7 +22,8 @@ let hostWorkdir = "./";
 
 export function createSandbox(options: SandboxOptions): void {
   hostMode = options.useHost ?? false;
-  hostWorkdir = options.codebasePath;
+  // Use first codebase as default working directory
+  hostWorkdir = options.codebasePaths[0]?.path || "./";
 
   if (hostMode) {
     return;
@@ -32,9 +33,15 @@ export function createSandbox(options: SandboxOptions): void {
     return;
   }
 
+  // Mount each codebase at /workspace/<name>
+  const codebaseMounts = options.codebasePaths.map((entry) => ({
+    hostPath: entry.path,
+    guestPath: `/workspace/${entry.name}`,
+  }));
+
   bashletInstance = new Bashlet({
     mounts: [
-      { hostPath: options.codebasePath, guestPath: "/workspace" },
+      ...codebaseMounts,
       { hostPath: options.kubeConfigPath, guestPath: "/root/.kube" },
     ],
     workdir: "/workspace",
@@ -143,7 +150,7 @@ export async function listDir(path: string): Promise<string[]> {
 
 export function initSandboxFromConfig(config: Config, useHost: boolean = false): void {
   createSandbox({
-    codebasePath: config.codebasePath,
+    codebasePaths: config.codebasePaths,
     kubeConfigPath: config.kubeConfigPath,
     timeout: 120,
     useHost,

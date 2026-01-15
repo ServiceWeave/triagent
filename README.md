@@ -57,8 +57,45 @@ triagent config path
 | `apiKey` | API key for the provider | - |
 | `baseUrl` | Custom API base URL (for proxies or local models) | - |
 | `webhookPort` | Webhook server port | `3000` |
-| `codebasePath` | Path to codebase | `./` |
+| `codebasePath` | Path to single codebase (legacy) | `./` |
 | `kubeConfigPath` | Kubernetes config path | `~/.kube` |
+
+### Multiple Codebases
+
+For applications spanning multiple repositories, configure `codebasePaths` in `~/.config/triagent/config.json`:
+
+```json
+{
+  "codebasePaths": [
+    { "name": "frontend", "path": "/path/to/frontend-repo" },
+    { "name": "backend", "path": "/path/to/backend-repo" },
+    { "name": "infra", "path": "/path/to/infrastructure" }
+  ]
+}
+```
+
+Each codebase is mounted at `/workspace/<name>` in the sandbox. The model can access any codebase as needed during investigation.
+
+### Custom Instructions (TRIAGENT.md)
+
+Create `~/.config/triagent/TRIAGENT.md` to provide custom instructions to the model. These instructions are prepended to the default system prompt.
+
+Example `TRIAGENT.md`:
+
+```markdown
+## Project Context
+
+This is a microservices e-commerce platform with the following services:
+- frontend: Next.js app in /workspace/frontend
+- api: Go backend in /workspace/backend
+- infra: Terraform configs in /workspace/infra
+
+## Investigation Priorities
+
+1. Always check the api service logs first for 5xx errors
+2. The frontend service talks to api via internal DNS: api.default.svc.cluster.local
+3. Common issues: Redis connection timeouts, PostgreSQL connection pool exhaustion
+```
 
 ### Environment Variables
 

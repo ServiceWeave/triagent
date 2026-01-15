@@ -3,21 +3,41 @@ import { homedir } from "os";
 import { join } from "path";
 import type { AIProvider } from "../config.js";
 
+export interface CodebaseEntry {
+  name: string;
+  path: string;
+}
+
 export interface StoredConfig {
   aiProvider?: AIProvider;
   aiModel?: string;
   apiKey?: string;
   baseUrl?: string;
   webhookPort?: number;
-  codebasePath?: string;
+  codebasePath?: string; // Deprecated: use codebasePaths instead
+  codebasePaths?: CodebaseEntry[];
   kubeConfigPath?: string;
 }
 
 const CONFIG_DIR = join(homedir(), ".config", "triagent");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+const TRIAGENT_MD_FILE = join(CONFIG_DIR, "TRIAGENT.md");
 
 export async function getConfigPath(): Promise<string> {
   return CONFIG_FILE;
+}
+
+export async function getTriagentMdPath(): Promise<string> {
+  return TRIAGENT_MD_FILE;
+}
+
+export async function loadTriagentMd(): Promise<string | null> {
+  try {
+    const content = await readFile(TRIAGENT_MD_FILE, "utf-8");
+    return content.trim();
+  } catch {
+    return null;
+  }
 }
 
 export async function loadStoredConfig(): Promise<StoredConfig> {

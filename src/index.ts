@@ -88,8 +88,15 @@ CONFIG KEYS:
   apiKey         - API key for the provider
   baseUrl        - Custom API base URL (for proxies or local models)
   webhookPort    - Webhook server port (default: 3000)
-  codebasePath   - Path to codebase (default: ./)
+  codebasePath   - Path to codebase (default: ./) - for single codebase
   kubeConfigPath - Kubernetes config path (default: ~/.kube)
+
+  For multiple codebases, edit ~/.config/triagent/config.json directly:
+    "codebasePaths": [
+      { "name": "frontend", "path": "/path/to/frontend" },
+      { "name": "backend", "path": "/path/to/backend" }
+    ]
+  Each codebase will be mounted at /workspace/<name> in the sandbox.
 
 MODES:
   Interactive (default):
@@ -280,7 +287,7 @@ async function main(): Promise<void> {
   // Initialize sandbox and Mastra
   try {
     initSandboxFromConfig(config, args.host);
-    createMastraInstance(config);
+    await createMastraInstance(config);
     if (args.host) {
       console.log("⚠️  Running in host mode (no sandbox)\n");
     }

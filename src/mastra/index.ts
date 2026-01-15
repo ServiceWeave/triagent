@@ -4,12 +4,12 @@ import type { Config } from "../config.js";
 
 let mastraInstance: Mastra | null = null;
 
-export function createMastraInstance(config: Config): Mastra {
+export async function createMastraInstance(config: Config): Promise<Mastra> {
   if (mastraInstance) {
     return mastraInstance;
   }
 
-  const debuggerAgent = createDebuggerAgent(config);
+  const debuggerAgent = await createDebuggerAgent(config);
 
   mastraInstance = new Mastra({
     agents: {

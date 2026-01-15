@@ -1,10 +1,15 @@
 import { z } from "zod";
 import { resolve } from "path";
 import { homedir } from "os";
-import { loadStoredConfig, type StoredConfig } from "./cli/config.js";
+import { loadStoredConfig, type StoredConfig, type CodebaseEntry } from "./cli/config.js";
 
 const AIProviderSchema = z.enum(["openai", "anthropic", "google"]);
 export type AIProvider = z.infer<typeof AIProviderSchema>;
+
+const CodebaseEntrySchema = z.object({
+  name: z.string().min(1),
+  path: z.string().min(1),
+});
 
 const ConfigSchema = z.object({
   aiProvider: AIProviderSchema,
@@ -12,11 +17,12 @@ const ConfigSchema = z.object({
   apiKey: z.string().min(1),
   baseUrl: z.string().url().optional(),
   webhookPort: z.number().int().positive().default(3000),
-  codebasePath: z.string().min(1).default("./"),
+  codebasePaths: z.array(CodebaseEntrySchema).min(1),
   kubeConfigPath: z.string().min(1).default("~/.kube"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type { CodebaseEntry };
 
 function expandPath(path: string): string {
   if (path.startsWith("~")) {
@@ -39,6 +45,20 @@ function getApiKey(provider: AIProvider, stored: StoredConfig): string {
   }
 }
 
+function resolveCodebasePaths(stored: StoredConfig): CodebaseEntry[] {
+  // Priority: codebasePaths array > legacy codebasePath > default
+  if (stored.codebasePaths && stored.codebasePaths.length > 0) {
+    return stored.codebasePaths.map((entry) => ({
+      name: entry.name,
+      path: expandPath(entry.path),
+    }));
+  }
+
+  // Backward compatibility: convert single codebasePath to array
+  const legacyPath = process.env.CODEBASE_PATH || stored.codebasePath || "./";
+  return [{ name: "workspace", path: expandPath(legacyPath) }];
+}
+
 export async function loadConfig(): Promise<Config> {
   const stored = await loadStoredConfig();
 
@@ -50,7 +70,7 @@ export async function loadConfig(): Promise<Config> {
     apiKey: getApiKey(provider, stored),
     baseUrl: process.env.AI_BASE_URL || stored.baseUrl || undefined,
     webhookPort: parseInt(process.env.WEBHOOK_PORT || String(stored.webhookPort || 3000), 10),
-    codebasePath: expandPath(process.env.CODEBASE_PATH || stored.codebasePath || "./"),
+    codebasePaths: resolveCodebasePaths(stored),
     kubeConfigPath: expandPath(process.env.KUBE_CONFIG_PATH || stored.kubeConfigPath || "~/.kube"),
   };
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { cliTool } from "../tools/cli.js";
 import { gitTool } from "../tools/git.js";
 import { filesystemTool } from "../tools/filesystem.js";
+import { loadTriagentMd } from "../../cli/config.js";
 import type { Config } from "../../config.js";
 
 const DEBUGGER_INSTRUCTIONS = `You are an expert Kubernetes debugging agent named Triagent. Your role is to investigate and diagnose issues in Kubernetes clusters by analyzing resources, logs, code, and git history.
@@ -162,7 +163,15 @@ export const InvestigationResultSchema = z.object({
 
 export type InvestigationResult = z.infer<typeof InvestigationResultSchema>;
 
-export function createDebuggerAgent(config: Config) {
+export async function createDebuggerAgent(config: Config) {
+  // Load user instructions from ~/.config/triagent/TRIAGENT.md if present
+  const userInstructions = await loadTriagentMd();
+
+  // Combine user instructions with default instructions
+  const instructions = userInstructions
+    ? `## User-Provided Instructions\n\n${userInstructions}\n\n---\n\n${DEBUGGER_INSTRUCTIONS}`
+    : DEBUGGER_INSTRUCTIONS;
+
   // Construct model config with API key and optional base URL
   const modelId = `${config.aiProvider}/${config.aiModel}` as const;
   const modelConfig = {
@@ -174,7 +183,7 @@ export function createDebuggerAgent(config: Config) {
   return new Agent({
     id: "kubernetes-debugger",
     name: "Kubernetes Debugger",
-    instructions: DEBUGGER_INSTRUCTIONS,
+    instructions,
     model: modelConfig as any, // Mastra handles model routing
     tools: {
       cli: cliTool,
