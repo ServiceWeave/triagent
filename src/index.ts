@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 // Load solid JSX plugin before any TSX imports
-import { plugin } from "bun";
-import solidPlugin from "@opentui/solid/bun-plugin";
-plugin(solidPlugin);
+import "@opentui/solid/preload";
 
 import { loadConfig } from "./config.js";
 import { initSandboxFromConfig } from "./sandbox/bashlet.js";
