@@ -1,3 +1,4 @@
+/** @jsxImportSource @opentui/solid */
 import { render } from "@opentui/solid";
 import { createSignal, For, Show, onMount } from "solid-js";
 import { createTextAttributes } from "@opentui/core";
