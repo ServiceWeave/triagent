@@ -5,7 +5,17 @@ AI-powered Kubernetes debugging agent with terminal UI.
 ## Installation
 
 ```bash
-bun install triagent
+# bun
+bun install -g triagent
+
+# npm
+npm install -g triagent
+
+# yarn
+yarn global add triagent
+
+# pnpm
+pnpm add -g triagent
 ```
 
 ## Usage
