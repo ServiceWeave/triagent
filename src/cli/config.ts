@@ -60,7 +60,7 @@ export async function setConfigValue(key: keyof StoredConfig, value: string | nu
   await saveStoredConfig(config);
 }
 
-export async function getConfigValue(key: keyof StoredConfig): Promise<string | number | undefined> {
+export async function getConfigValue(key: keyof StoredConfig): Promise<StoredConfig[keyof StoredConfig]> {
   const config = await loadStoredConfig();
   return config[key];
 }

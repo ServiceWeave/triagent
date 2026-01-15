@@ -27,7 +27,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/triagent.git"
+    "url": "git+https://github.com/ServiceWeave/triagent.git"
+  },
+  "homepage": "https://github.com/ServiceWeave/triagent#readme",
+  "bugs": {
+    "url": "https://github.com/ServiceWeave/triagent/issues"
   },
   "license": "MIT",
   "scripts": {
