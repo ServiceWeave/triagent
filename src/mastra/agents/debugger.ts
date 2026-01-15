@@ -163,14 +163,17 @@ export const InvestigationResultSchema = z.object({
 export type InvestigationResult = z.infer<typeof InvestigationResultSchema>;
 
 export function createDebuggerAgent(config: Config) {
-  // Construct model string based on provider
-  const modelString = `${config.aiProvider}/${config.aiModel}`;
+  // Construct model config - use OpenAICompatibleConfig if baseUrl is set
+  const modelId = `${config.aiProvider}/${config.aiModel}` as const;
+  const modelConfig = config.baseUrl
+    ? { id: modelId, url: config.baseUrl }
+    : modelId;
 
   return new Agent({
     id: "kubernetes-debugger",
     name: "Kubernetes Debugger",
     instructions: DEBUGGER_INSTRUCTIONS,
-    model: modelString as any, // Mastra handles model routing
+    model: modelConfig as any, // Mastra handles model routing
     tools: {
       cli: cliTool,
       git: gitTool,

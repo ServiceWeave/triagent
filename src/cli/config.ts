@@ -7,6 +7,7 @@ export interface StoredConfig {
   aiProvider?: AIProvider;
   aiModel?: string;
   apiKey?: string;
+  baseUrl?: string;
   webhookPort?: number;
   codebasePath?: string;
   kubeConfigPath?: string;

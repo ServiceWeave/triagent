@@ -84,6 +84,7 @@ CONFIG KEYS:
   aiProvider     - AI provider (openai, anthropic, google)
   aiModel        - Model ID (e.g., gpt-4o, claude-sonnet-4-20250514)
   apiKey         - API key for the provider
+  baseUrl        - Custom API base URL (for proxies or local models)
   webhookPort    - Webhook server port (default: 3000)
   codebasePath   - Path to codebase (default: ./)
   kubeConfigPath - Kubernetes config path (default: ~/.kube)
@@ -109,6 +110,7 @@ MODES:
 ENVIRONMENT VARIABLES:
   AI_PROVIDER              - AI provider (openai, anthropic, google)
   AI_MODEL                 - Model ID (e.g., gpt-4o, claude-3-5-sonnet)
+  AI_BASE_URL              - Custom API base URL (for proxies or local models)
   OPENAI_API_KEY          - OpenAI API key
   ANTHROPIC_API_KEY       - Anthropic API key
   GOOGLE_GENERATIVE_AI_API_KEY - Google AI API key
@@ -179,6 +181,7 @@ async function handleConfigCommand(args: CliArgs): Promise<void> {
     "aiProvider",
     "aiModel",
     "apiKey",
+    "baseUrl",
     "webhookPort",
     "codebasePath",
     "kubeConfigPath",
