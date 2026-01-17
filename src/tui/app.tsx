@@ -3,8 +3,21 @@ import { render } from "@opentui/solid";
 import { createSignal, For, Show, onMount } from "solid-js";
 import { createTextAttributes } from "@opentui/core";
 import "opentui-spinner/solid";
+import { marked } from "marked";
+import { markedTerminal } from "marked-terminal";
 import { getDebuggerAgent, buildIncidentPrompt } from "../mastra/index.js";
 import type { IncidentInput } from "../mastra/agents/debugger.js";
+
+// Configure marked with terminal renderer
+marked.use(markedTerminal() as any);
+
+function renderMarkdown(content: string): string {
+  try {
+    return marked(content) as string;
+  } catch {
+    return content;
+  }
+}
 
 interface Message {
   id: string;
@@ -302,7 +315,7 @@ function App() {
                         Triagent:
                       </text>
                       <text fg="white" wrapMode="word">
-                        {msg.content}
+                        {renderMarkdown(msg.content)}
                       </text>
                     </box>
                   </Show>
