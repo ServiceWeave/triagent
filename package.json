@@ -51,7 +51,6 @@
     "@opentui/solid": "^0.1.72",
     "hono": "^4.6.0",
     "marked": "^17.0.1",
-    "marked-terminal": "^7.3.0",
     "opentui-spinner": "^0.0.6",
     "solid-js": "1.9.9",
     "triagent": "^0.1.0-alpha1",
@@ -59,7 +58,6 @@
   },
   "devDependencies": {
     "@types/babel__core": "^7.20.5",
-    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^22.0.0",
     "bun-types": "^1.2.0",
     "typescript": "^5.7.0"

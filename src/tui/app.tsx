@@ -3,19 +3,192 @@ import { render } from "@opentui/solid";
 import { createSignal, For, Show, onMount } from "solid-js";
 import { createTextAttributes } from "@opentui/core";
 import "opentui-spinner/solid";
-import { marked } from "marked";
-import { markedTerminal } from "marked-terminal";
+import { marked, type Token, type Tokens } from "marked";
+import {
+  StyledText,
+  bold,
+  italic,
+  dim,
+  cyan,
+  yellow,
+  type TextChunk,
+} from "@opentui/core";
 import { getDebuggerAgent, buildIncidentPrompt } from "../mastra/index.js";
 import type { IncidentInput } from "../mastra/agents/debugger.js";
 
-// Configure marked with terminal renderer
-marked.use(markedTerminal() as any);
+// Convert marked tokens to OpenTUI TextChunks
+function tokensToChunks(tokens: Token[]): TextChunk[] {
+  const chunks: TextChunk[] = [];
 
-function renderMarkdown(content: string): string {
+  for (const token of tokens) {
+    switch (token.type) {
+      case "heading": {
+        const t = token as Tokens.Heading;
+        // Add newline before heading (except first)
+        if (chunks.length > 0) chunks.push({ text: "\n" });
+        chunks.push(bold(cyan(t.text)));
+        chunks.push({ text: "\n" });
+        break;
+      }
+      case "paragraph": {
+        const t = token as Tokens.Paragraph;
+        if (t.tokens) {
+          chunks.push(...inlineTokensToChunks(t.tokens));
+        } else {
+          chunks.push({ text: t.text });
+        }
+        chunks.push({ text: "\n" });
+        break;
+      }
+      case "text": {
+        const t = token as Tokens.Text;
+        if (t.tokens) {
+          chunks.push(...inlineTokensToChunks(t.tokens));
+        } else {
+          chunks.push({ text: t.text });
+        }
+        break;
+      }
+      case "code": {
+        const t = token as Tokens.Code;
+        chunks.push({ text: "\n" });
+        // Add language label if present
+        if (t.lang) {
+          chunks.push(dim(`[${t.lang}]`));
+          chunks.push({ text: "\n" });
+        }
+        chunks.push(yellow(t.text));
+        chunks.push({ text: "\n" });
+        break;
+      }
+      case "codespan": {
+        const t = token as Tokens.Codespan;
+        chunks.push(yellow(t.text));
+        break;
+      }
+      case "list": {
+        const t = token as Tokens.List;
+        for (let i = 0; i < t.items.length; i++) {
+          const item = t.items[i];
+          const bullet = t.ordered ? `${i + 1}. ` : "• ";
+          chunks.push(dim(bullet));
+          if (item.tokens) {
+            chunks.push(...tokensToChunks(item.tokens));
+          } else {
+            chunks.push({ text: item.text });
+            chunks.push({ text: "\n" });
+          }
+        }
+        break;
+      }
+      case "list_item": {
+        const t = token as Tokens.ListItem;
+        if (t.tokens) {
+          chunks.push(...tokensToChunks(t.tokens));
+        } else {
+          chunks.push({ text: t.text });
+          chunks.push({ text: "\n" });
+        }
+        break;
+      }
+      case "blockquote": {
+        const t = token as Tokens.Blockquote;
+        chunks.push(dim("│ "));
+        if (t.tokens) {
+          chunks.push(...tokensToChunks(t.tokens));
+        } else {
+          chunks.push({ text: t.text });
+          chunks.push({ text: "\n" });
+        }
+        break;
+      }
+      case "hr":
+        chunks.push(dim("───────────────────────────────────────"));
+        chunks.push({ text: "\n" });
+        break;
+      case "space":
+        chunks.push({ text: "\n" });
+        break;
+      default:
+        // Fallback for unhandled token types
+        if ("text" in token && typeof token.text === "string") {
+          chunks.push({ text: token.text });
+        }
+        if ("raw" in token && typeof token.raw === "string" && !("text" in token)) {
+          chunks.push({ text: token.raw });
+        }
+    }
+  }
+
+  return chunks;
+}
+
+// Convert inline tokens (bold, italic, links, etc.)
+function inlineTokensToChunks(tokens: Token[]): TextChunk[] {
+  const chunks: TextChunk[] = [];
+
+  for (const token of tokens) {
+    switch (token.type) {
+      case "strong": {
+        const t = token as Tokens.Strong;
+        if (t.tokens) {
+          for (const chunk of inlineTokensToChunks(t.tokens)) {
+            chunks.push(bold(chunk.text || ""));
+          }
+        } else {
+          chunks.push(bold(t.text));
+        }
+        break;
+      }
+      case "em": {
+        const t = token as Tokens.Em;
+        if (t.tokens) {
+          for (const chunk of inlineTokensToChunks(t.tokens)) {
+            chunks.push(italic(chunk.text || ""));
+          }
+        } else {
+          chunks.push(italic(t.text));
+        }
+        break;
+      }
+      case "codespan": {
+        const t = token as Tokens.Codespan;
+        chunks.push(yellow(t.text));
+        break;
+      }
+      case "link": {
+        const t = token as Tokens.Link;
+        chunks.push(cyan(t.text));
+        chunks.push(dim(` (${t.href})`));
+        break;
+      }
+      case "text": {
+        const t = token as Tokens.Text;
+        chunks.push({ text: t.text });
+        break;
+      }
+      case "escape": {
+        const t = token as Tokens.Escape;
+        chunks.push({ text: t.text });
+        break;
+      }
+      default:
+        if ("text" in token && typeof token.text === "string") {
+          chunks.push({ text: token.text });
+        }
+    }
+  }
+
+  return chunks;
+}
+
+function renderMarkdown(content: string): StyledText {
   try {
-    return marked(content) as string;
+    const tokens = marked.lexer(content);
+    const chunks = tokensToChunks(tokens);
+    return new StyledText(chunks);
   } catch {
-    return content;
+    return new StyledText([{ text: content }]);
   }
 }
 
@@ -314,9 +487,7 @@ function App() {
                       <text fg="green" attributes={ATTR_BOLD}>
                         Triagent:
                       </text>
-                      <text fg="white" wrapMode="word">
-                        {renderMarkdown(msg.content)}
-                      </text>
+                      <text wrapMode="word" content={renderMarkdown(msg.content)} />
                     </box>
                   </Show>
                 </box>
