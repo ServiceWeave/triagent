@@ -26,6 +26,69 @@ triagent
 
 # Run webhook server only
 triagent --webhook-only
+
+# Direct incident investigation
+triagent --incident "API gateway returning 503 errors"
+```
+
+## Execution Modes
+
+Triagent supports three execution modes for running commands:
+
+### Sandbox Mode (Default)
+
+Commands run inside a Docker container via [Bashlet](https://github.com/anthropics/bashlet). This provides isolation and safety - the agent cannot accidentally modify your host system.
+
+```bash
+triagent
+```
+
+Codebases are mounted at `/workspace/<name>` and kubeconfig at `/root/.kube`.
+
+### Host Mode
+
+Commands run directly on your local machine. Use this when you need access to tools not available in the sandbox.
+
+```bash
+triagent --host
+```
+
+### Remote Mode
+
+Commands run on a remote server via SSH. This is useful for connecting to a Docker container or VM with pre-installed debugging tools.
+
+```bash
+triagent --remote user@host
+triagent -r root@debug-container.local
+```
+
+On startup, triagent creates a session workspace on the remote:
+```
+🌐 Running in remote mode: root@debug-container.local
+   Workspace: /tmp/triagent-a3b4c5d6 (session: a3b4c5d6)
+```
+
+**Requirements:**
+- SSH key-based authentication (no password prompts)
+- The remote must have the necessary CLI tools (kubectl, etc.)
+
+**Example: Debug container setup**
+
+```bash
+# Run a container with SSH and debugging tools
+docker run -d --name debug-tools \
+  -p 2222:22 \
+  -v ~/.kube:/root/.kube:ro \
+  your-debug-image:latest
+
+# Add to ~/.ssh/config for easy access
+# Host debug-tools
+#   HostName localhost
+#   Port 2222
+#   User root
+
+# Connect triagent to it
+triagent --remote debug-tools
 ```
 
 ## Configuration

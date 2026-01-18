@@ -29,6 +29,7 @@ interface CliArgs {
   incident: string | null;
   help: boolean;
   host: boolean;
+  remote: string | null;
 }
 
 function parseArgs(): CliArgs {
@@ -39,6 +40,7 @@ function parseArgs(): CliArgs {
     incident: null,
     help: false,
     host: false,
+    remote: null,
   };
 
   // Check for config subcommand
@@ -85,6 +87,8 @@ function parseArgs(): CliArgs {
       result.help = true;
     } else if (arg === "--host") {
       result.host = true;
+    } else if (arg === "--remote" || arg === "-r") {
+      result.remote = args[++i] || null;
     }
   }
 
@@ -105,6 +109,7 @@ OPTIONS:
   -w, --webhook-only  Run only the webhook server (no TUI)
   -i, --incident      Direct incident input (runs once and exits)
       --host          Run commands on host machine (no sandbox)
+  -r, --remote        Run commands on remote server via SSH (user@host)
 
 CONFIG COMMANDS:
   triagent config set <key> <value>  Set a configuration value
@@ -182,6 +187,9 @@ EXAMPLES:
 
   # Direct incident investigation
   triagent -i "API gateway returning 503 errors"
+
+  # Run commands on a remote server via SSH
+  triagent --remote user@debug-container.local
 
   # Multi-cluster management
   triagent cluster add prod --context prod-cluster -e production
@@ -482,12 +490,31 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // Validate mutually exclusive options
+  if (args.host && args.remote) {
+    console.error("❌ Cannot use --host and --remote together");
+    process.exit(1);
+  }
+
   // Initialize sandbox and Mastra
   try {
-    initSandboxFromConfig(config, args.host);
+    const sandboxOptions: { useHost?: boolean; remote?: { target: string } } = {};
+    if (args.host) {
+      sandboxOptions.useHost = true;
+    } else if (args.remote) {
+      sandboxOptions.remote = { target: args.remote };
+    }
+
+    await initSandboxFromConfig(config, sandboxOptions);
     await createMastraInstance(config);
+
     if (args.host) {
       console.log("⚠️  Running in host mode (no sandbox)\n");
+    } else if (args.remote) {
+      const { getRemoteInfo } = await import("./sandbox/bashlet.js");
+      const info = getRemoteInfo();
+      console.log(`🌐 Running in remote mode: ${args.remote}`);
+      console.log(`   Workspace: ${info?.workdir} (session: ${info?.sessionId})\n`);
     }
   } catch (error) {
     console.error("❌ Initialization error:", error);

@@ -2,6 +2,7 @@
 import { Toaster, toast, useToasts } from "@opentui-ui/toast/solid";
 import { TOAST_DURATION } from "@opentui-ui/toast";
 import type { JSX } from "solid-js";
+import { colors, spacing } from "../theme/index.js";
 
 // Re-export toast function and duration constants for app-wide use
 export { toast, TOAST_DURATION, useToasts };
@@ -27,8 +28,10 @@ export function ToastProvider(props: ToastProviderProps): JSX.Element {
           duration: TOAST_DURATION.DEFAULT,
           style: {
             borderStyle: "single",
-            paddingLeft: 1,
-            paddingRight: 1,
+            borderColor: colors.border.default,
+            backgroundColor: colors.background.primary,
+            paddingLeft: spacing.xs,
+            paddingRight: spacing.xs,
             paddingTop: 0,
             paddingBottom: 0,
           },

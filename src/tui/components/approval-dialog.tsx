@@ -1,12 +1,17 @@
 /* @jsxImportSource @opentui/solid */
 import { DialogProvider, useDialog, useDialogKeyboard, type ConfirmContext } from "@opentui-ui/dialog/solid";
-import { createTextAttributes } from "@opentui/core";
 import type { JSX, ParentProps } from "solid-js";
+import {
+  colors,
+  spacing,
+  ATTR_BOLD,
+  ATTR_DIM,
+  getRiskColor,
+  getRiskHexColor,
+  type RiskLevel,
+} from "../theme/index.js";
 
-const ATTR_BOLD = createTextAttributes({ bold: true });
-const ATTR_DIM = createTextAttributes({ dim: true });
-
-export type RiskLevel = "low" | "medium" | "high" | "critical";
+export type { RiskLevel };
 
 export interface ApprovalDialogOptions {
   command: string;
@@ -14,30 +19,16 @@ export interface ApprovalDialogOptions {
   description?: string;
 }
 
-function getRiskColor(risk: RiskLevel): string {
-  switch (risk) {
-    case "low": return "green";
-    case "medium": return "yellow";
-    case "high": return "red";
-    case "critical": return "magenta";
-  }
-}
-
 function getRiskEmoji(risk: RiskLevel): string {
   switch (risk) {
-    case "low": return "🟢";
-    case "medium": return "🟡";
-    case "high": return "🟠";
-    case "critical": return "🔴";
-  }
-}
-
-function getRiskBorderColor(risk: RiskLevel): string {
-  switch (risk) {
-    case "low": return "#22c55e";
-    case "medium": return "#eab308";
-    case "high": return "#ef4444";
-    case "critical": return "#ec4899";
+    case "low":
+      return "●";
+    case "medium":
+      return "●";
+    case "high":
+      return "●";
+    case "critical":
+      return "●";
   }
 }
 
@@ -62,44 +53,44 @@ function ApprovalDialogContent(ctx: ConfirmContext & { options: ApprovalDialogOp
       {/* Header */}
       <box flexDirection="row" gap={1}>
         <text fg={riskColor}>{getRiskEmoji(riskLevel)}</text>
-        <text fg="white" attributes={ATTR_BOLD}>
+        <text fg={colors.text.primary} attributes={ATTR_BOLD}>
           Write Operation Requires Approval
         </text>
-        <text fg="gray" attributes={ATTR_DIM}>
+        <text fg={colors.text.secondary} attributes={ATTR_DIM}>
           ({riskLevel} risk)
         </text>
       </box>
 
       {/* Command */}
       <box flexDirection="column">
-        <text fg="cyan" attributes={ATTR_BOLD}>Command:</text>
-        <text fg="yellow">{command}</text>
+        <text fg={colors.info} attributes={ATTR_BOLD}>Command:</text>
+        <text fg={colors.warning}>{command}</text>
       </box>
 
       {/* Description if provided */}
       {description && (
         <box flexDirection="column">
-          <text fg="gray" attributes={ATTR_DIM}>{description}</text>
+          <text fg={colors.text.secondary} attributes={ATTR_DIM}>{description}</text>
         </box>
       )}
 
       {/* Warning for high risk */}
       {(riskLevel === "high" || riskLevel === "critical") && (
         <box>
-          <text fg="red" attributes={ATTR_BOLD}>
-            ⚠️ This is a {riskLevel}-risk operation. Review carefully.
+          <text fg={colors.error} attributes={ATTR_BOLD}>
+            This is a {riskLevel}-risk operation. Review carefully.
           </text>
         </box>
       )}
 
       {/* Actions */}
       <box flexDirection="row" gap={4} marginTop={1}>
-        <text fg="green" attributes={ATTR_BOLD}>[Y] Approve</text>
-        <text fg="red" attributes={ATTR_BOLD}>[N] Reject</text>
+        <text fg={colors.success} attributes={ATTR_BOLD}>[Y] Approve</text>
+        <text fg={colors.error} attributes={ATTR_BOLD}>[N] Reject</text>
       </box>
 
       {/* Instructions */}
-      <text fg="gray" attributes={ATTR_DIM}>
+      <text fg={colors.text.secondary} attributes={ATTR_DIM}>
         Press Y to approve, N to reject, or Esc to cancel
       </text>
     </box>
@@ -116,10 +107,10 @@ export function ApprovalDialogProvider(props: ParentProps): JSX.Element {
       dialogOptions={{
         style: {
           borderStyle: "single",
-          borderColor: "#ffffff",
-          backgroundColor: "#1a1a1a",
-          paddingLeft: 2,
-          paddingRight: 2,
+          borderColor: colors.text.primary,
+          backgroundColor: colors.background.primary,
+          paddingLeft: spacing.sm,
+          paddingRight: spacing.sm,
           paddingTop: 1,
           paddingBottom: 1,
         },
@@ -142,7 +133,7 @@ export function useApprovalDialog() {
     const result = await dialog.confirm({
       content: (ctx) => ApprovalDialogContent({ ...ctx, options }),
       style: {
-        borderColor: getRiskBorderColor(options.riskLevel),
+        borderColor: getRiskHexColor(options.riskLevel),
         borderStyle: "double",
       },
     });
