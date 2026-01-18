@@ -16,10 +16,15 @@ import {
 import type { AIProvider } from "./config.js";
 
 interface CliArgs {
-  command: "run" | "config";
+  command: "run" | "config" | "cluster";
   configAction?: "set" | "get" | "list" | "path";
   configKey?: string;
   configValue?: string;
+  clusterAction?: "add" | "remove" | "list" | "use" | "status";
+  clusterName?: string;
+  clusterContext?: string;
+  clusterKubeConfig?: string;
+  clusterEnvironment?: string;
   webhookOnly: boolean;
   incident: string | null;
   help: boolean;
@@ -42,6 +47,30 @@ function parseArgs(): CliArgs {
     result.configAction = args[1] as "set" | "get" | "list" | "path";
     result.configKey = args[2];
     result.configValue = args[3];
+    return result;
+  }
+
+  // Check for cluster subcommand
+  if (args[0] === "cluster") {
+    result.command = "cluster";
+    result.clusterAction = args[1] as "add" | "remove" | "list" | "use" | "status";
+
+    // Parse cluster sub-command arguments
+    for (let i = 2; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === "--name" || arg === "-n") {
+        result.clusterName = args[++i];
+      } else if (arg === "--context" || arg === "-c") {
+        result.clusterContext = args[++i];
+      } else if (arg === "--kubeconfig" || arg === "-k") {
+        result.clusterKubeConfig = args[++i];
+      } else if (arg === "--environment" || arg === "-e") {
+        result.clusterEnvironment = args[++i];
+      } else if (!arg.startsWith("-")) {
+        // Positional argument - cluster name
+        result.clusterName = arg;
+      }
+    }
     return result;
   }
 
@@ -69,6 +98,7 @@ function printHelp(): void {
 USAGE:
   triagent [OPTIONS]
   triagent config <action> [key] [value]
+  triagent cluster <action> [options]
 
 OPTIONS:
   -h, --help          Show this help message
@@ -98,6 +128,19 @@ CONFIG KEYS:
     ]
   Each codebase will be mounted at /workspace/<name> in the sandbox.
 
+CLUSTER COMMANDS:
+  triagent cluster add <name> --context <ctx>  Add a cluster
+  triagent cluster remove <name>               Remove a cluster
+  triagent cluster list                        List all clusters
+  triagent cluster use <name>                  Set active cluster
+  triagent cluster status [name]               Check cluster status
+
+CLUSTER OPTIONS:
+  -n, --name         Cluster name
+  -c, --context      Kubernetes context name
+  -k, --kubeconfig   Path to kubeconfig file
+  -e, --environment  Environment (development, staging, production)
+
 MODES:
   Interactive (default):
     Run with no arguments to start the interactive TUI.
@@ -108,9 +151,12 @@ MODES:
     incident webhooks from alerting systems.
 
     Endpoints:
-      POST /webhook/incident  - Submit an incident
+      POST /webhook/incident   - Submit an incident
       GET  /investigations/:id - Get investigation results
-      GET  /health            - Health check
+      GET  /history            - List investigation history
+      GET  /history/:id        - Get investigation details
+      GET  /history/stats      - Get investigation statistics
+      GET  /health             - Health check
 
   Direct Input:
     Use --incident "description" for one-shot debugging.
@@ -136,6 +182,11 @@ EXAMPLES:
 
   # Direct incident investigation
   triagent -i "API gateway returning 503 errors"
+
+  # Multi-cluster management
+  triagent cluster add prod --context prod-cluster -e production
+  triagent cluster use prod
+  triagent cluster status
 
   # Submit via curl (webhook mode)
   curl -X POST http://localhost:3000/webhook/incident \\
@@ -182,6 +233,147 @@ async function runDirectIncident(description: string): Promise<void> {
   } catch (error) {
     console.error("\n❌ Investigation failed:", error);
     process.exit(1);
+  }
+}
+
+import { initClusterManager, getClusterManager } from "./integrations/kubernetes/multi-cluster.js";
+import type { ClusterConfig } from "./cli/config.js";
+
+async function handleClusterCommand(args: CliArgs): Promise<void> {
+  const config = await loadStoredConfig();
+  const clusterManager = initClusterManager(config.clusters, config.activeCluster);
+
+  switch (args.clusterAction) {
+    case "add": {
+      if (!args.clusterName) {
+        console.error("Usage: triagent cluster add <name> --context <context>");
+        process.exit(1);
+      }
+      const context = args.clusterContext || args.clusterName;
+      const newCluster: ClusterConfig = {
+        name: args.clusterName,
+        context,
+        kubeConfigPath: args.clusterKubeConfig,
+        environment: args.clusterEnvironment as ClusterConfig["environment"],
+      };
+
+      await clusterManager.addCluster(newCluster);
+
+      // Save to config
+      config.clusters = config.clusters || [];
+      config.clusters.push(newCluster);
+      await saveStoredConfig(config);
+
+      console.log(`✅ Added cluster: ${args.clusterName} (context: ${context})`);
+      break;
+    }
+    case "remove": {
+      if (!args.clusterName) {
+        console.error("Usage: triagent cluster remove <name>");
+        process.exit(1);
+      }
+
+      const removed = await clusterManager.removeCluster(args.clusterName);
+      if (!removed) {
+        console.error(`Cluster not found: ${args.clusterName}`);
+        process.exit(1);
+      }
+
+      // Remove from config
+      config.clusters = config.clusters?.filter((c) => c.name !== args.clusterName);
+      if (config.activeCluster === args.clusterName) {
+        config.activeCluster = undefined;
+      }
+      await saveStoredConfig(config);
+
+      console.log(`✅ Removed cluster: ${args.clusterName}`);
+      break;
+    }
+    case "list": {
+      const clusters = clusterManager.listClusters();
+      if (clusters.length === 0) {
+        console.log("No clusters configured.");
+        console.log("\nDiscover available contexts:");
+        const discovered = await clusterManager.discoverClusters();
+        if (discovered.length > 0) {
+          console.log("\nAvailable Kubernetes contexts:");
+          for (const c of discovered) {
+            console.log(`  - ${c.context} (${c.server})`);
+          }
+          console.log("\nAdd a cluster with: triagent cluster add <name> --context <context>");
+        } else {
+          console.log("No Kubernetes contexts found.");
+        }
+      } else {
+        console.log("Configured clusters:\n");
+        for (const c of clusters) {
+          const active = c.isActive ? " (active)" : "";
+          const env = c.environment ? ` [${c.environment}]` : "";
+          console.log(`  ${c.name}${active}${env}`);
+          console.log(`    context: ${c.context}`);
+          if (c.kubeConfigPath) {
+            console.log(`    kubeconfig: ${c.kubeConfigPath}`);
+          }
+        }
+      }
+      break;
+    }
+    case "use": {
+      if (!args.clusterName) {
+        console.error("Usage: triagent cluster use <name>");
+        process.exit(1);
+      }
+
+      const success = await clusterManager.setActiveCluster(args.clusterName);
+      if (!success) {
+        console.error(`Cluster not found: ${args.clusterName}`);
+        process.exit(1);
+      }
+
+      // Save to config
+      config.activeCluster = args.clusterName;
+      await saveStoredConfig(config);
+
+      console.log(`✅ Active cluster set to: ${args.clusterName}`);
+      break;
+    }
+    case "status": {
+      const clusterName = args.clusterName;
+      if (clusterName) {
+        const status = await clusterManager.checkClusterStatus(clusterName);
+        console.log(`Cluster: ${status.name}`);
+        console.log(`  Connected: ${status.connected ? "✅ Yes" : "❌ No"}`);
+        if (status.connected) {
+          console.log(`  Version: ${status.version}`);
+          console.log(`  Nodes: ${status.nodeCount}`);
+        }
+        if (status.error) {
+          console.log(`  Error: ${status.error}`);
+        }
+      } else {
+        const clusters = clusterManager.listClusters();
+        if (clusters.length === 0) {
+          console.log("No clusters configured.");
+        } else {
+          console.log("Cluster status:\n");
+          for (const c of clusters) {
+            const status = await clusterManager.checkClusterStatus(c.name);
+            const active = c.isActive ? " (active)" : "";
+            const connected = status.connected ? "✅" : "❌";
+            console.log(`  ${connected} ${c.name}${active}`);
+            if (status.connected) {
+              console.log(`      v${status.version}, ${status.nodeCount} nodes`);
+            } else if (status.error) {
+              console.log(`      Error: ${status.error}`);
+            }
+          }
+        }
+      }
+      break;
+    }
+    default:
+      console.error("Usage: triagent cluster <add|remove|list|use|status> [options]");
+      process.exit(1);
   }
 }
 
@@ -270,6 +462,12 @@ async function main(): Promise<void> {
   // Handle config command
   if (args.command === "config") {
     await handleConfigCommand(args);
+    process.exit(0);
+  }
+
+  // Handle cluster command
+  if (args.command === "cluster") {
+    await handleClusterCommand(args);
     process.exit(0);
   }
 

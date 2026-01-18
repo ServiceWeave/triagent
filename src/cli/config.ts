@@ -8,6 +8,65 @@ export interface CodebaseEntry {
   path: string;
 }
 
+export interface ClusterConfig {
+  name: string;
+  context: string;
+  kubeConfigPath?: string;
+  environment?: "development" | "staging" | "production";
+}
+
+export interface PrometheusConfig {
+  url: string;
+  auth?: { token: string };
+}
+
+export interface GrafanaConfig {
+  url: string;
+  apiKey: string;
+}
+
+export interface ElasticsearchConfig {
+  url: string;
+  index: string;
+  auth?: { apiKey: string };
+}
+
+export interface LokiConfig {
+  url: string;
+}
+
+export interface CloudWatchConfig {
+  region: string;
+  logGroupPrefix?: string;
+}
+
+export interface SlackConfig {
+  webhookUrl: string;
+  botToken?: string;
+  defaultChannel?: string;
+}
+
+export interface TeamsConfig {
+  webhookUrl: string;
+}
+
+export interface RunbookConfig {
+  paths: string[];
+  gitRepos?: string[];
+}
+
+export interface CostAnalysisConfig {
+  provider?: "aws" | "gcp" | "azure";
+  hourlyRates?: {
+    cpu: number;
+    memory: number;
+    storage: number;
+  };
+  businessImpact?: {
+    revenuePerMinute?: number;
+  };
+}
+
 export interface StoredConfig {
   aiProvider?: AIProvider;
   aiModel?: string;
@@ -17,11 +76,35 @@ export interface StoredConfig {
   codebasePath?: string; // Deprecated: use codebasePaths instead
   codebasePaths?: CodebaseEntry[];
   kubeConfigPath?: string;
+
+  // Phase 1: Foundation
+  historyRetentionDays?: number;
+  clusters?: ClusterConfig[];
+  activeCluster?: string;
+
+  // Phase 2: Observability
+  prometheus?: PrometheusConfig;
+  grafana?: GrafanaConfig;
+  logProvider?: "elasticsearch" | "loki" | "cloudwatch";
+  elasticsearch?: ElasticsearchConfig;
+  loki?: LokiConfig;
+  cloudwatch?: CloudWatchConfig;
+
+  // Phase 3: Operations
+  runbooks?: RunbookConfig;
+
+  // Phase 4: Communication & Cost
+  notifications?: {
+    slack?: SlackConfig;
+    teams?: TeamsConfig;
+  };
+  costAnalysis?: CostAnalysisConfig;
 }
 
 const CONFIG_DIR = join(homedir(), ".config", "triagent");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 const TRIAGENT_MD_FILE = join(CONFIG_DIR, "TRIAGENT.md");
+const RUNBOOK_MD_FILE = join(CONFIG_DIR, "RUNBOOK.md");
 
 export async function getConfigPath(): Promise<string> {
   return CONFIG_FILE;
@@ -38,6 +121,19 @@ export async function loadTriagentMd(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+export async function loadRunbookMd(): Promise<string | null> {
+  try {
+    const content = await readFile(RUNBOOK_MD_FILE, "utf-8");
+    return content.trim();
+  } catch {
+    return null;
+  }
+}
+
+export async function getRunbookMdPath(): Promise<string> {
+  return RUNBOOK_MD_FILE;
 }
 
 export async function loadStoredConfig(): Promise<StoredConfig> {

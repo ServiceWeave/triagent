@@ -7,6 +7,9 @@ import {
   buildIncidentPrompt,
   type IncidentInput,
 } from "../mastra/index.js";
+import { createHistoryRoutes } from "./routes/history.js";
+import { createNotificationRoutes } from "./routes/notifications.js";
+import { getHistoryStore, type InvestigationHistory } from "../storage/index.js";
 
 const IncidentRequestSchema = z.object({
   title: z.string().min(1),
@@ -29,6 +32,13 @@ const investigations = new Map<string, Investigation>();
 
 export function createWebhookServer() {
   const app = new Hono();
+  const historyStore = getHistoryStore();
+
+  // Mount history routes
+  app.route("/history", createHistoryRoutes());
+
+  // Mount notification routes
+  app.route("/notifications", createNotificationRoutes());
 
   // Health check
   app.get("/health", (c) => {
@@ -134,6 +144,18 @@ async function runInvestigation(id: string): Promise<void> {
 
   investigation.status = "running";
 
+  // Create persistent history record
+  const historyStore = getHistoryStore();
+  const historyRecord: InvestigationHistory = {
+    id,
+    incident: investigation.incident,
+    status: "running",
+    startedAt: investigation.startedAt,
+    events: [],
+    toolCalls: [],
+  };
+  await historyStore.save(historyRecord);
+
   try {
     const agent = getDebuggerAgent();
     const prompt = buildIncidentPrompt(investigation.incident);
@@ -145,7 +167,7 @@ async function runInvestigation(id: string): Promise<void> {
       { role: "user", content: prompt },
     ], {
       maxSteps: 20,
-      onStepFinish: ({ toolCalls }) => {
+      onStepFinish: async ({ toolCalls }) => {
         if (toolCalls && toolCalls.length > 0) {
           const toolCall = toolCalls[0];
           const toolName = "toolName" in toolCall ? toolCall.toolName : "tool";
@@ -154,6 +176,12 @@ async function runInvestigation(id: string): Promise<void> {
           if (args && typeof args === "object" && "command" in args) {
             console.log(`[Investigation ${id}] $ ${args.command}`);
           }
+
+          // Record tool call in history
+          await historyStore.addToolCall(id, {
+            toolName,
+            args: args as Record<string, unknown>,
+          });
         }
       },
     });
@@ -162,11 +190,17 @@ async function runInvestigation(id: string): Promise<void> {
     investigation.completedAt = new Date();
     investigation.result = response.text;
 
+    // Update history with completion
+    await historyStore.updateStatus(id, "completed", undefined, response.text);
+
     console.log(`[Investigation ${id}] Completed`);
   } catch (error) {
     investigation.status = "failed";
     investigation.completedAt = new Date();
     investigation.error = error instanceof Error ? error.message : String(error);
+
+    // Update history with failure
+    await historyStore.updateStatus(id, "failed", undefined, undefined, investigation.error);
 
     console.error(`[Investigation ${id}] Failed:`, investigation.error);
   }

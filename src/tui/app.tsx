@@ -1,69 +1,64 @@
 /* @jsxImportSource @opentui/solid */
 import { render } from "@opentui/solid";
-import { createSignal, For, Show, onMount } from "solid-js";
+import { createSignal, For, Show, onMount, type JSX } from "solid-js";
 import { createTextAttributes } from "@opentui/core";
 import "opentui-spinner/solid";
 import { marked, type Token, type Tokens } from "marked";
-import {
-  StyledText,
-  bold,
-  italic,
-  dim,
-  cyan,
-  yellow,
-  type TextChunk,
-} from "@opentui/core";
 import { getDebuggerAgent, buildIncidentPrompt } from "../mastra/index.js";
 import type { IncidentInput } from "../mastra/agents/debugger.js";
 
-// Convert marked tokens to OpenTUI TextChunks
-function tokensToChunks(tokens: Token[]): TextChunk[] {
-  const chunks: TextChunk[] = [];
+const ATTR_DIM = createTextAttributes({ dim: true });
+
+// Convert marked tokens to JSX elements
+function tokensToJsx(tokens: Token[]): JSX.Element[] {
+  const elements: JSX.Element[] = [];
+  let key = 0;
 
   for (const token of tokens) {
     switch (token.type) {
       case "heading": {
         const t = token as Tokens.Heading;
-        // Add newline before heading (except first)
-        if (chunks.length > 0) chunks.push({ text: "\n" });
-        chunks.push(bold(cyan(t.text)));
-        chunks.push({ text: "\n" });
+        if (elements.length > 0) elements.push(<span>{"\n"}</span>);
+        elements.push(
+          <b>
+            <span fg="cyan">{t.text}</span>
+          </b>
+        );
+        elements.push(<span>{"\n"}</span>);
         break;
       }
       case "paragraph": {
         const t = token as Tokens.Paragraph;
         if (t.tokens) {
-          chunks.push(...inlineTokensToChunks(t.tokens));
+          elements.push(...inlineTokensToJsx(t.tokens));
         } else {
-          chunks.push({ text: t.text });
+          elements.push(<span>{t.text}</span>);
         }
-        chunks.push({ text: "\n" });
+        elements.push(<span>{"\n"}</span>);
         break;
       }
       case "text": {
         const t = token as Tokens.Text;
         if (t.tokens) {
-          chunks.push(...inlineTokensToChunks(t.tokens));
+          elements.push(...inlineTokensToJsx(t.tokens));
         } else {
-          chunks.push({ text: t.text });
+          elements.push(<span>{t.text}</span>);
         }
         break;
       }
       case "code": {
         const t = token as Tokens.Code;
-        chunks.push({ text: "\n" });
-        // Add language label if present
+        elements.push(<span>{"\n"}</span>);
         if (t.lang) {
-          chunks.push(dim(`[${t.lang}]`));
-          chunks.push({ text: "\n" });
+          elements.push(<span fg="gray" attributes={ATTR_DIM}>[{t.lang}]{"\n"}</span>);
         }
-        chunks.push(yellow(t.text));
-        chunks.push({ text: "\n" });
+        elements.push(<span fg="yellow">{t.text}</span>);
+        elements.push(<span>{"\n"}</span>);
         break;
       }
       case "codespan": {
         const t = token as Tokens.Codespan;
-        chunks.push(yellow(t.text));
+        elements.push(<span fg="yellow">{t.text}</span>);
         break;
       }
       case "list": {
@@ -71,12 +66,11 @@ function tokensToChunks(tokens: Token[]): TextChunk[] {
         for (let i = 0; i < t.items.length; i++) {
           const item = t.items[i];
           const bullet = t.ordered ? `${i + 1}. ` : "• ";
-          chunks.push(dim(bullet));
+          elements.push(<span fg="gray" attributes={ATTR_DIM}>{bullet}</span>);
           if (item.tokens) {
-            chunks.push(...tokensToChunks(item.tokens));
+            elements.push(...tokensToJsx(item.tokens));
           } else {
-            chunks.push({ text: item.text });
-            chunks.push({ text: "\n" });
+            elements.push(<span>{item.text}{"\n"}</span>);
           }
         }
         break;
@@ -84,112 +78,112 @@ function tokensToChunks(tokens: Token[]): TextChunk[] {
       case "list_item": {
         const t = token as Tokens.ListItem;
         if (t.tokens) {
-          chunks.push(...tokensToChunks(t.tokens));
+          elements.push(...tokensToJsx(t.tokens));
         } else {
-          chunks.push({ text: t.text });
-          chunks.push({ text: "\n" });
+          elements.push(<span>{t.text}{"\n"}</span>);
         }
         break;
       }
       case "blockquote": {
         const t = token as Tokens.Blockquote;
-        chunks.push(dim("│ "));
+        elements.push(<span fg="gray" attributes={ATTR_DIM}>│ </span>);
         if (t.tokens) {
-          chunks.push(...tokensToChunks(t.tokens));
+          elements.push(...tokensToJsx(t.tokens));
         } else {
-          chunks.push({ text: t.text });
-          chunks.push({ text: "\n" });
+          elements.push(<span>{t.text}{"\n"}</span>);
         }
         break;
       }
       case "hr":
-        chunks.push(dim("───────────────────────────────────────"));
-        chunks.push({ text: "\n" });
+        elements.push(<span fg="gray" attributes={ATTR_DIM}>───────────────────────────────────────{"\n"}</span>);
         break;
       case "space":
-        chunks.push({ text: "\n" });
+        elements.push(<span>{"\n"}</span>);
         break;
       default:
-        // Fallback for unhandled token types
         if ("text" in token && typeof token.text === "string") {
-          chunks.push({ text: token.text });
+          elements.push(<span>{token.text}</span>);
         }
         if ("raw" in token && typeof token.raw === "string" && !("text" in token)) {
-          chunks.push({ text: token.raw });
+          elements.push(<span>{token.raw}</span>);
         }
     }
   }
 
-  return chunks;
+  return elements;
 }
 
-// Convert inline tokens (bold, italic, links, etc.)
-function inlineTokensToChunks(tokens: Token[]): TextChunk[] {
-  const chunks: TextChunk[] = [];
+// Convert inline tokens to JSX elements
+function inlineTokensToJsx(tokens: Token[]): JSX.Element[] {
+  const elements: JSX.Element[] = [];
 
   for (const token of tokens) {
     switch (token.type) {
       case "strong": {
         const t = token as Tokens.Strong;
         if (t.tokens) {
-          for (const chunk of inlineTokensToChunks(t.tokens)) {
-            chunks.push(bold(chunk.text || ""));
-          }
+          elements.push(<b>{inlineTokensToJsx(t.tokens)}</b>);
         } else {
-          chunks.push(bold(t.text));
+          elements.push(<b>{t.text}</b>);
         }
         break;
       }
       case "em": {
         const t = token as Tokens.Em;
         if (t.tokens) {
-          for (const chunk of inlineTokensToChunks(t.tokens)) {
-            chunks.push(italic(chunk.text || ""));
-          }
+          elements.push(<i>{inlineTokensToJsx(t.tokens)}</i>);
         } else {
-          chunks.push(italic(t.text));
+          elements.push(<i>{t.text}</i>);
         }
         break;
       }
       case "codespan": {
         const t = token as Tokens.Codespan;
-        chunks.push(yellow(t.text));
+        elements.push(<span fg="yellow">{t.text}</span>);
         break;
       }
       case "link": {
         const t = token as Tokens.Link;
-        chunks.push(cyan(t.text));
-        chunks.push(dim(` (${t.href})`));
+        elements.push(<span fg="cyan">{t.text}</span>);
+        elements.push(<span fg="gray" attributes={ATTR_DIM}> ({t.href})</span>);
         break;
       }
       case "text": {
         const t = token as Tokens.Text;
-        chunks.push({ text: t.text });
+        elements.push(<span>{t.text}</span>);
         break;
       }
       case "escape": {
         const t = token as Tokens.Escape;
-        chunks.push({ text: t.text });
+        elements.push(<span>{t.text}</span>);
         break;
       }
       default:
         if ("text" in token && typeof token.text === "string") {
-          chunks.push({ text: token.text });
+          elements.push(<span>{token.text}</span>);
         }
     }
   }
 
-  return chunks;
+  return elements;
 }
 
-function renderMarkdown(content: string): StyledText {
-  try {
-    const tokens = marked.lexer(content);
-    const chunks = tokensToChunks(tokens);
-    return new StyledText(chunks);
-  } catch {
-    return new StyledText([{ text: content }]);
-  }
+function MarkdownText(props: { content: string }): JSX.Element {
+  const tokens = () => {
+    try {
+      return marked.lexer(props.content);
+    } catch {
+      return [];
+    }
+  };
+
+  return (
+    <text wrapMode="word">
+      <Show when={tokens().length > 0} fallback={<span>{props.content}</span>}>
+        {tokensToJsx(tokens())}
+      </Show>
+    </text>
+  );
 }
 
 interface Message {
@@ -221,7 +215,6 @@ function formatHistoryAsPrompt(history: ConversationMessage[], newMessage: strin
 
 type AppStatus = "idle" | "investigating" | "complete" | "error";
 
-const ATTR_DIM = createTextAttributes({ dim: true });
 const ATTR_BOLD = createTextAttributes({ bold: true });
 
 function buildDisplayCommand(toolName: string, args: unknown): string | undefined {
@@ -487,7 +480,7 @@ function App() {
                       <text fg="green" attributes={ATTR_BOLD}>
                         Triagent:
                       </text>
-                      <text wrapMode="word" content={renderMarkdown(msg.content)} />
+                      <MarkdownText content={msg.content} />
                     </box>
                   </Show>
                 </box>
