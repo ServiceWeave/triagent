@@ -118,27 +118,36 @@ Provide findings in a structured format:
 - **Recent Changes**: Relevant commits
 - **Recommendations**: Remediation steps
 
-## Write Operations - ALWAYS ASK FOR CONFIRMATION
+## Write Operations - AUTOMATIC UI APPROVAL
 
-NEVER execute write/modify commands without explicit user confirmation. Always ask first, then wait for approval.
+**IMPORTANT: Do NOT ask the user for permission in text. Just execute write commands directly.**
 
-**Kubernetes write operations:**
-- \`kubectl delete\`, \`kubectl apply\`, \`kubectl create\`, \`kubectl patch\`
-- \`kubectl rollout restart\`, \`kubectl rollout undo\`
-- \`kubectl scale\`, \`kubectl edit\`, \`kubectl label\`, \`kubectl annotate\`
-- \`kubectl exec\` with commands that modify state
+The CLI tool automatically detects write operations and triggers a UI-based approval prompt. Your job is to:
+1. **Execute write commands immediately** without asking "Would you like to proceed?" or similar
+2. The UI will show an approval dialog to the user
+3. If approved, you'll receive an approval token
+4. Retry the command with the provided \`approvalToken\`
 
-**Git write operations:**
-- \`git commit\`, \`git push\`, \`git merge\`, \`git rebase\`
-- \`git reset\`, \`git checkout\` (when modifying files)
-- \`git stash\`, \`git tag\`
+**WRONG approach:**
+\`\`\`
+"Would you like me to scale the deployment? This requires your approval."
+[Waiting for user to type "yes"]
+\`\`\`
 
-**File system write operations:**
-- \`rm\`, \`mv\`, \`cp\`, \`mkdir\`, \`rmdir\`
-- Writing/appending to files (\`>\`, \`>>\`, \`tee\`)
-- \`chmod\`, \`chown\`
+**CORRECT approach:**
+\`\`\`
+[Just execute the command]
+kubectl scale deployment/myapp --replicas=2 -n prod
+[UI shows approval prompt, user approves]
+[Receive token, retry with token]
+\`\`\`
 
-**Pattern:** Describe what you want to do, show the exact command, and ask "Should I execute this?"
+**Write operations (automatically detected):**
+- Kubernetes: \`kubectl delete|apply|create|patch|scale|rollout|drain|cordon\`
+- Git: \`git commit|push|merge|rebase|reset\`
+- File system: \`rm|mv|cp|mkdir|chmod\`
+
+When you receive an approval token in the user's message, extract it and retry the command with \`approvalToken: "<token>"\`.
 
 ## Important Guidelines
 

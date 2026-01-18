@@ -1,6 +1,7 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
 import { execCommand } from "../../sandbox/bashlet.js";
+import { approvalStore, type PendingApproval } from "./approval-store.js";
 
 interface CliOutput {
   success: boolean;
@@ -8,6 +9,9 @@ interface CliOutput {
   error?: string;
   requiresApproval?: boolean;
   command?: string;
+  // Token-based approval fields
+  approvalId?: string;
+  riskLevel?: PendingApproval["riskLevel"];
 }
 
 // Write command patterns that require user approval
@@ -75,7 +79,7 @@ Examples:
 
   inputSchema: z.object({
     command: z.string().describe("The shell command to execute"),
-    approved: z.boolean().optional().describe("Set to true if user has approved this write command"),
+    approvalToken: z.string().optional().describe("Approval token from user confirmation. Required for write operations."),
   }),
 
   outputSchema: z.object({
@@ -84,21 +88,46 @@ Examples:
     error: z.string().optional(),
     requiresApproval: z.boolean().optional(),
     command: z.string().optional(),
+    approvalId: z.string().optional(),
+    riskLevel: z.enum(["low", "medium", "high", "critical"]).optional(),
   }),
 
   execute: async (inputData): Promise<CliOutput> => {
-    const { command, approved } = inputData;
+    const { command, approvalToken } = inputData;
 
     try {
       // Check if this is a write command
-      if (isWriteCommand(command) && !approved) {
-        return {
-          success: false,
-          output: "",
-          requiresApproval: true,
-          command: command,
-          error: `⚠️ WRITE OPERATION DETECTED - APPROVAL REQUIRED\n\nCommand: ${command}\n\nThis command will modify state. Please confirm you want to execute it by calling the cli tool again with approved: true`,
-        };
+      if (isWriteCommand(command)) {
+        // If token provided, validate it
+        if (approvalToken) {
+          const isValid = approvalStore.validateToken(command, approvalToken);
+          if (!isValid) {
+            // Invalid or expired token - request new approval
+            const pending = approvalStore.requestApproval(command);
+            return {
+              success: false,
+              output: "",
+              requiresApproval: true,
+              command: command,
+              approvalId: pending.id,
+              riskLevel: pending.riskLevel,
+              error: `⚠️ APPROVAL TOKEN INVALID OR EXPIRED\n\nCommand: ${command}\nRisk Level: ${pending.riskLevel.toUpperCase()}\nApproval ID: ${pending.id}\n\nPlease wait for user to approve this operation. A new approval token will be provided.`,
+            };
+          }
+          // Token valid - proceed with execution
+        } else {
+          // No token - request approval
+          const pending = approvalStore.requestApproval(command);
+          return {
+            success: false,
+            output: "",
+            requiresApproval: true,
+            command: command,
+            approvalId: pending.id,
+            riskLevel: pending.riskLevel,
+            error: `⚠️ WRITE OPERATION DETECTED - APPROVAL REQUIRED\n\nCommand: ${command}\nRisk Level: ${pending.riskLevel.toUpperCase()}\nApproval ID: ${pending.id}\n\nThis command will modify state. Waiting for user approval...`,
+          };
+        }
       }
 
       const result = await execCommand(command);

@@ -6,8 +6,17 @@ import "opentui-spinner/solid";
 import { marked, type Token, type Tokens } from "marked";
 import { getDebuggerAgent, buildIncidentPrompt } from "../mastra/index.js";
 import type { IncidentInput } from "../mastra/agents/debugger.js";
+import { approvalStore } from "../mastra/tools/approval-store.js";
 
 const ATTR_DIM = createTextAttributes({ dim: true });
+
+// Pending approval state for HITL
+interface PendingApprovalState {
+  approvalId: string;
+  command: string;
+  riskLevel: "low" | "medium" | "high" | "critical";
+  selectedOption: number; // 0 = approve, 1 = reject
+}
 
 // Convert marked tokens to JSX elements
 function tokensToJsx(tokens: Token[]): JSX.Element[] {
@@ -213,9 +222,28 @@ function formatHistoryAsPrompt(history: ConversationMessage[], newMessage: strin
   return `Previous conversation:\n${historyText}\n\nUser: ${newMessage}`;
 }
 
-type AppStatus = "idle" | "investigating" | "complete" | "error";
+type AppStatus = "idle" | "investigating" | "awaiting_approval" | "complete" | "error";
 
 const ATTR_BOLD = createTextAttributes({ bold: true });
+
+// Risk level color mapping
+function getRiskColor(risk: PendingApprovalState["riskLevel"]): string {
+  switch (risk) {
+    case "low": return "green";
+    case "medium": return "yellow";
+    case "high": return "red";
+    case "critical": return "magenta";
+  }
+}
+
+function getRiskEmoji(risk: PendingApprovalState["riskLevel"]): string {
+  switch (risk) {
+    case "low": return "🟢";
+    case "medium": return "🟡";
+    case "high": return "🟠";
+    case "critical": return "🔴";
+  }
+}
 
 function buildDisplayCommand(toolName: string, args: unknown): string | undefined {
   if (!args || typeof args !== "object") return undefined;
@@ -271,6 +299,9 @@ function App() {
   const [inputValue, setInputValue] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
 
+  // HITL approval state
+  const [pendingApproval, setPendingApproval] = createSignal<PendingApprovalState | null>(null);
+
   const addMessage = (msg: Omit<Message, "id" | "timestamp">) => {
     setMessages((prev) => [
       ...prev,
@@ -280,6 +311,155 @@ function App() {
         timestamp: new Date(),
       },
     ]);
+  };
+
+  // Handle approval selection (Y/N or arrow keys)
+  const handleApprovalKey = (key: string) => {
+    const approval = pendingApproval();
+    if (!approval) return;
+
+    if (key === "ArrowUp" || key === "ArrowDown") {
+      // Toggle selection
+      setPendingApproval({ ...approval, selectedOption: approval.selectedOption === 0 ? 1 : 0 });
+    } else if (key === "Enter") {
+      // Submit selection
+      const approved = approval.selectedOption === 0;
+      handleApprovalDecision(approved);
+    } else if (key === "y" || key === "Y") {
+      // Quick approve
+      handleApprovalDecision(true);
+    } else if (key === "n" || key === "N") {
+      // Quick reject
+      handleApprovalDecision(false);
+    }
+  };
+
+  const handleApprovalDecision = async (approved: boolean) => {
+    const approval = pendingApproval();
+    if (!approval) return;
+
+    if (approved) {
+      // Get approval token from store
+      const token = approvalStore.approve(approval.approvalId);
+      if (!token) {
+        addMessage({
+          role: "assistant",
+          content: "Approval expired. Please try the operation again.",
+        });
+        setPendingApproval(null);
+        setStatus("complete");
+        return;
+      }
+
+      // Add approval message to UI
+      addMessage({
+        role: "user",
+        content: `✓ Approved: ${approval.command}`,
+      });
+
+      // Continue the agent with the approval token
+      setPendingApproval(null);
+      const approvalMessage = `User approved the command. The approval token is: ${token}. Please execute the command: ${approval.command} with approvalToken: "${token}"`;
+
+      // Add to conversation history
+      setConversationHistory((prev) => [
+        ...prev,
+        { role: "user", content: approvalMessage },
+      ]);
+
+      // Continue investigation with the approval
+      setStatus("investigating");
+      continueWithApproval(approvalMessage);
+    } else {
+      // Reject
+      approvalStore.reject(approval.approvalId);
+      addMessage({
+        role: "user",
+        content: `✗ Rejected: ${approval.command}`,
+      });
+      addMessage({
+        role: "assistant",
+        content: "Command rejected by user. How would you like to proceed?",
+      });
+      setPendingApproval(null);
+      setStatus("complete");
+    }
+  };
+
+  const continueWithApproval = async (message: string) => {
+    try {
+      const agent = getDebuggerAgent();
+      let assistantContent = "";
+
+      const prompt = formatHistoryAsPrompt(conversationHistory(), message);
+
+      const stream = await agent.stream(prompt, {
+        maxSteps: 20,
+        onStepFinish: ({ toolCalls, toolResults }) => {
+          if (toolCalls && toolCalls.length > 0) {
+            const toolCall = toolCalls[0] as { toolName?: string; args?: unknown };
+            const toolName = toolCall.toolName ?? "tool";
+            const args = toolCall.args ?? {};
+
+            const command = buildDisplayCommand(toolName, args);
+
+            setCurrentTool(toolName);
+            addMessage({
+              role: "tool",
+              content: command ? `$ ${command}` : `Executing ${toolName}...`,
+              toolName,
+              command,
+            });
+          }
+
+          // Check for approval requirement
+          if (toolResults && toolResults.length > 0) {
+            for (const toolResult of toolResults) {
+              // Mastra wraps results: toolResult.payload.result contains the actual data
+              const tr = toolResult as any;
+              const data = tr?.payload?.result ?? tr?.result ?? tr;
+
+              if (data?.requiresApproval && data?.approvalId) {
+                setPendingApproval({
+                  approvalId: data.approvalId,
+                  command: data.command || "unknown command",
+                  riskLevel: (data.riskLevel as PendingApprovalState["riskLevel"]) || "medium",
+                  selectedOption: 0, // Default to approve
+                });
+                setStatus("awaiting_approval");
+              }
+            }
+          }
+        },
+      });
+
+      for await (const chunk of stream.textStream) {
+        assistantContent += chunk;
+      }
+
+      if (status() !== "awaiting_approval") {
+        addMessage({
+          role: "assistant",
+          content: assistantContent,
+        });
+
+        setConversationHistory((prev) => [
+          ...prev,
+          { role: "assistant", content: assistantContent },
+        ]);
+
+        setStatus("complete");
+      }
+      setCurrentTool(null);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setError(errorMsg);
+      setStatus("error");
+      addMessage({
+        role: "assistant",
+        content: `Error: ${errorMsg}`,
+      });
+    }
   };
 
   const investigate = async (incident: IncidentInput) => {
@@ -316,7 +496,9 @@ function App() {
       // Send the formatted prompt to the agent
       const stream = await agent.stream(prompt, {
         maxSteps: 20,
-        onStepFinish: ({ toolCalls }) => {
+        onStepFinish: (stepResult) => {
+          const { toolCalls, toolResults } = stepResult;
+
           if (toolCalls && toolCalls.length > 0) {
             const toolCall = toolCalls[0] as { toolName?: string; args?: unknown };
             const toolName = toolCall.toolName ?? "tool";
@@ -333,6 +515,25 @@ function App() {
               command,
             });
           }
+
+          // Check for approval requirement in tool results
+          if (toolResults && toolResults.length > 0) {
+            for (const toolResult of toolResults) {
+              // Mastra wraps results: toolResult.payload.result contains the actual data
+              const tr = toolResult as any;
+              const data = tr?.payload?.result ?? tr?.result ?? tr;
+
+              if (data?.requiresApproval && data?.approvalId) {
+                setPendingApproval({
+                  approvalId: data.approvalId,
+                  command: data.command || "unknown command",
+                  riskLevel: (data.riskLevel as PendingApprovalState["riskLevel"]) || "medium",
+                  selectedOption: 0, // Default to approve
+                });
+                setStatus("awaiting_approval");
+              }
+            }
+          }
         },
       });
 
@@ -340,19 +541,22 @@ function App() {
         assistantContent += chunk;
       }
 
-      // Add assistant response to UI
-      addMessage({
-        role: "assistant",
-        content: assistantContent,
-      });
+      // Only add response and set complete if not awaiting approval
+      if (status() !== "awaiting_approval") {
+        // Add assistant response to UI
+        addMessage({
+          role: "assistant",
+          content: assistantContent,
+        });
 
-      // Add assistant response to conversation history
-      setConversationHistory((prev) => [
-        ...prev,
-        { role: "assistant", content: assistantContent },
-      ]);
+        // Add assistant response to conversation history
+        setConversationHistory((prev) => [
+          ...prev,
+          { role: "assistant", content: assistantContent },
+        ]);
 
-      setStatus("complete");
+        setStatus("complete");
+      }
       setCurrentTool(null);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -385,6 +589,8 @@ function App() {
     switch (status()) {
       case "investigating":
         return "yellow";
+      case "awaiting_approval":
+        return "red";
       case "complete":
         return "green";
       case "error":
@@ -398,6 +604,8 @@ function App() {
     switch (status()) {
       case "investigating":
         return currentTool() ? `Running: ${currentTool()}` : "Investigating...";
+      case "awaiting_approval":
+        return "Awaiting Approval";
       case "complete":
         return "Complete";
       case "error":
@@ -462,10 +670,12 @@ function App() {
                   <Show when={msg.role === "tool"}>
                     <box flexDirection="row" gap={1} alignItems="center">
                       <Show
-                        when={status() === "investigating" && msg.id === messages().filter(m => m.role === "tool").at(-1)?.id}
+                        when={(status() === "investigating" || status() === "awaiting_approval") && msg.id === messages().filter(m => m.role === "tool").at(-1)?.id}
                         fallback={<text fg="green">✓</text>}
                       >
-                        <spinner name="dots" color="blue" />
+                        <Show when={status() === "awaiting_approval"} fallback={<spinner name="dots" color="blue" />}>
+                          <text fg="yellow">⏸</text>
+                        </Show>
                       </Show>
                       <text fg="blue" attributes={ATTR_DIM}>
                         [{msg.toolName}]
@@ -486,39 +696,156 @@ function App() {
                 </box>
               )}
             </For>
+
+            {/* Approval prompt - Claude Code style */}
+            <Show when={pendingApproval()}>
+              {(approval) => (
+                <box
+                  flexDirection="column"
+                  borderStyle="single"
+                  borderColor={getRiskColor(approval().riskLevel)}
+                  paddingLeft={1}
+                  paddingRight={1}
+                  paddingTop={1}
+                  paddingBottom={1}
+                  marginTop={1}
+                >
+                  {/* Header */}
+                  <box flexDirection="row" gap={1} marginBottom={1}>
+                    <text fg={getRiskColor(approval().riskLevel)}>
+                      {getRiskEmoji(approval().riskLevel)}
+                    </text>
+                    <text fg="white" attributes={ATTR_BOLD}>
+                      Write Operation Requires Approval
+                    </text>
+                    <text fg="gray" attributes={ATTR_DIM}>
+                      ({approval().riskLevel} risk)
+                    </text>
+                  </box>
+
+                  {/* Command */}
+                  <box flexDirection="column" marginBottom={1}>
+                    <text fg="cyan" attributes={ATTR_BOLD}>Command:</text>
+                    <text fg="yellow">{approval().command}</text>
+                  </box>
+
+                  {/* Options */}
+                  <box flexDirection="column" gap={1}>
+                    <box flexDirection="row" gap={1}>
+                      <text fg={approval().selectedOption === 0 ? "green" : "gray"}>
+                        {approval().selectedOption === 0 ? "●" : "○"}
+                      </text>
+                      <text
+                        fg={approval().selectedOption === 0 ? "green" : "white"}
+                        attributes={approval().selectedOption === 0 ? ATTR_BOLD : undefined}
+                      >
+                        Yes, execute this command
+                      </text>
+                    </box>
+                    <box flexDirection="row" gap={1}>
+                      <text fg={approval().selectedOption === 1 ? "red" : "gray"}>
+                        {approval().selectedOption === 1 ? "●" : "○"}
+                      </text>
+                      <text
+                        fg={approval().selectedOption === 1 ? "red" : "white"}
+                        attributes={approval().selectedOption === 1 ? ATTR_BOLD : undefined}
+                      >
+                        No, cancel this operation
+                      </text>
+                    </box>
+                  </box>
+
+                  {/* Instructions */}
+                  <text fg="gray" attributes={ATTR_DIM} marginTop={1}>
+                    Use ↑↓ to select, Enter to confirm, or press Y/N
+                  </text>
+                </box>
+              )}
+            </Show>
           </Show>
         </box>
       </scrollbox>
 
       {/* Input Area */}
-      <box
-        borderStyle="single"
-        borderColor={status() === "investigating" ? "yellow" : "cyan"}
-        paddingLeft={1}
-        paddingRight={1}
-        flexDirection="row"
-        gap={1}
+      <Show
+        when={status() === "awaiting_approval"}
+        fallback={
+          <box
+            borderStyle="single"
+            borderColor={status() === "investigating" ? "yellow" : "cyan"}
+            paddingLeft={1}
+            paddingRight={1}
+            flexDirection="row"
+            gap={1}
+          >
+            <text fg="cyan" attributes={ATTR_BOLD}>
+              {">"}
+            </text>
+            <input
+              flexGrow={1}
+              focused={true}
+              value={inputValue()}
+              onInput={handleInput}
+              onSubmit={handleSubmit}
+              placeholder={
+                status() === "investigating"
+                  ? "Investigating..."
+                  : "Describe the incident..."
+              }
+              textColor="white"
+              placeholderColor="gray"
+              focusedTextColor="white"
+              focusedBackgroundColor="#1a1a1a"
+            />
+          </box>
+        }
       >
-        <text fg="cyan" attributes={ATTR_BOLD}>
-          {">"}
-        </text>
-        <input
-          flexGrow={1}
-          focused={true}
-          value={inputValue()}
-          onInput={handleInput}
-          onSubmit={handleSubmit}
-          placeholder={
-            status() === "investigating"
-              ? "Investigating..."
-              : "Describe the incident..."
-          }
-          textColor="white"
-          placeholderColor="gray"
-          focusedTextColor="white"
-          focusedBackgroundColor="#1a1a1a"
-        />
-      </box>
+        {/* Approval mode input */}
+        <box
+          borderStyle="single"
+          borderColor="red"
+          paddingLeft={1}
+          paddingRight={1}
+          flexDirection="row"
+          gap={1}
+        >
+          <text fg="red" attributes={ATTR_BOLD}>
+            ?
+          </text>
+          <input
+            flexGrow={1}
+            focused={true}
+            value=""
+            onInput={(value) => {
+              // Handle Y/N keys
+              if (value.toLowerCase() === "y") {
+                handleApprovalDecision(true);
+              } else if (value.toLowerCase() === "n") {
+                handleApprovalDecision(false);
+              }
+            }}
+            onKeyDown={(key) => {
+              // KeyEvent has a 'name' property
+              if (key.name === "up" || key.name === "down") {
+                const approval = pendingApproval();
+                if (approval) {
+                  setPendingApproval({ ...approval, selectedOption: approval.selectedOption === 0 ? 1 : 0 });
+                }
+              } else if (key.name === "return") {
+                const approval = pendingApproval();
+                if (approval) {
+                  handleApprovalDecision(approval.selectedOption === 0);
+                }
+              }
+            }}
+            placeholder="Press Y to approve, N to reject, or use ↑↓ and Enter"
+            textColor="white"
+            placeholderColor="gray"
+            focusedTextColor="white"
+            focusedBackgroundColor="#1a1a1a"
+          />
+        </box>
+      </Show>
 
       {/* Footer */}
       <box
@@ -527,9 +854,18 @@ function App() {
         flexDirection="row"
         justifyContent="space-between"
       >
-        <text fg="gray" attributes={ATTR_DIM}>
-          Press Enter to submit | Ctrl+C to quit
-        </text>
+        <Show
+          when={status() === "awaiting_approval"}
+          fallback={
+            <text fg="gray" attributes={ATTR_DIM}>
+              Press Enter to submit | Ctrl+C to quit
+            </text>
+          }
+        >
+          <text fg="yellow" attributes={ATTR_BOLD}>
+            ⚠ Approval required: Y/N or ↑↓ + Enter
+          </text>
+        </Show>
         <text fg="gray" attributes={ATTR_DIM}>
           {messages().length} messages
         </text>
