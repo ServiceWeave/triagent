@@ -47,6 +47,8 @@
     "@ai-sdk/openai": "^1.3.0",
     "@bashlet/sdk": "^0.1.0-alpha1",
     "@mastra/core": "^1.0.0-beta.21",
+    "@opentui-ui/dialog": "^0.1.2",
+    "@opentui-ui/toast": "^0.0.5",
     "@opentui/core": "^0.1.72",
     "@opentui/solid": "^0.1.72",
     "hono": "^4.6.0",

@@ -92,7 +92,8 @@ Examples:
     riskLevel: z.enum(["low", "medium", "high", "critical"]).optional(),
   }),
 
-  execute: async (inputData): Promise<CliOutput> => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (async (inputData: any): Promise<CliOutput> => {
     const { command, approvalToken } = inputData;
 
     try {
@@ -152,5 +153,5 @@ Examples:
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  },
+  }) as any,
 });

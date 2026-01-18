@@ -180,8 +180,8 @@ Costs are calculated based on configured hourly rates or default cloud pricing.`
     }).optional(),
     error: z.string().optional(),
   }),
-  execute: async ({ context }) => {
-    const { operation, target, timeRange } = context;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (async ({ operation, target, timeRange }: any) => {
 
     try {
       switch (operation) {
@@ -385,5 +385,5 @@ Costs are calculated based on configured hourly rates or default cloud pricing.`
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  },
+  }) as any,
 });

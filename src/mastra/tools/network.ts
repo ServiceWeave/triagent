@@ -37,8 +37,8 @@ and can run network diagnostics inside pods using kubectl exec.`,
     data: z.string(),
     error: z.string().optional(),
   }),
-  execute: async ({ context }) => {
-    const { operation, source, target } = context;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (async ({ operation, source, target }: any) => {
 
     try {
       switch (operation) {
@@ -249,5 +249,5 @@ and can run network diagnostics inside pods using kubectl exec.`,
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  },
+  }) as any,
 });

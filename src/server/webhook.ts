@@ -170,7 +170,7 @@ async function runInvestigation(id: string): Promise<void> {
       onStepFinish: async ({ toolCalls }) => {
         if (toolCalls && toolCalls.length > 0) {
           const toolCall = toolCalls[0];
-          const toolName = "toolName" in toolCall ? toolCall.toolName : "tool";
+          const toolName = "toolName" in toolCall ? String(toolCall.toolName) : "tool";
           const args = "args" in toolCall ? toolCall.args : {};
           console.log(`[Investigation ${id}] Tool: ${toolName}`);
           if (args && typeof args === "object" && "command" in args) {

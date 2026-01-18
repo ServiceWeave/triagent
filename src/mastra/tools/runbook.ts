@@ -35,8 +35,8 @@ Configure runbook paths in triagent config.`,
     })).optional(),
     error: z.string().optional(),
   }),
-  execute: async ({ context }) => {
-    const { operation, query, symptoms, tags, runbookId, limit } = context;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (async ({ operation, query, symptoms, tags, runbookId, limit }: any) => {
 
     try {
       const indexer = getRunbookIndexer();
@@ -182,5 +182,5 @@ Configure runbook paths in triagent config.`,
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  },
+  }) as any,
 });

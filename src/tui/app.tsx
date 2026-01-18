@@ -1,14 +1,51 @@
 /* @jsxImportSource @opentui/solid */
 import { render } from "@opentui/solid";
-import { createSignal, For, Show, onMount, type JSX } from "solid-js";
-import { createTextAttributes } from "@opentui/core";
+import { createSignal, For, Show, onMount, createMemo, type JSX, type Accessor } from "solid-js";
+import { createTextAttributes, SyntaxStyle, type ThemeTokenStyle } from "@opentui/core";
 import "opentui-spinner/solid";
-import { marked, type Token, type Tokens } from "marked";
+import { createPulse } from "opentui-spinner";
+import { exec } from "child_process";
+import { promisify } from "util";
 import { getDebuggerAgent, buildIncidentPrompt } from "../mastra/index.js";
 import type { IncidentInput } from "../mastra/agents/debugger.js";
 import { approvalStore } from "../mastra/tools/approval-store.js";
+import { ToastProvider, toast, toastSuccess, toastError, toastWarning, toastInfo } from "./components/toast.js";
+import { ApprovalDialogProvider, useApprovalDialog, type RiskLevel } from "./components/approval-dialog.js";
+import { StyledSpan } from "./components/styled-span.js";
+
+const execAsync = promisify(exec);
 
 const ATTR_DIM = createTextAttributes({ dim: true });
+
+// Markdown syntax highlighting theme (matching opencode's approach)
+const MARKDOWN_SYNTAX_THEME: ThemeTokenStyle[] = [
+  // Headings - cyan and bold
+  { scope: ["markup.heading", "markup.heading.1", "markup.heading.2", "markup.heading.3", "markup.heading.4", "markup.heading.5", "markup.heading.6"], style: { foreground: "cyan", bold: true } },
+  // Bold/strong - white and bold
+  { scope: ["markup.strong"], style: { foreground: "white", bold: true } },
+  // Italic/emphasis - white and italic
+  { scope: ["markup.italic"], style: { foreground: "white", italic: true } },
+  // Inline code - yellow
+  { scope: ["markup.raw", "markup.raw.block"], style: { foreground: "yellow" } },
+  // Block quotes - gray and italic
+  { scope: ["markup.quote"], style: { foreground: "gray", italic: true } },
+  // Lists - gray
+  { scope: ["markup.list", "markup.list.unchecked", "markup.list.checked"], style: { foreground: "gray" } },
+  // Links - cyan with underline
+  { scope: ["markup.link", "markup.link.url"], style: { foreground: "cyan", underline: true } },
+  { scope: ["markup.link.label", "markup.link.bracket.close"], style: { foreground: "blue" } },
+  // Strikethrough - dim
+  { scope: ["markup.strikethrough"], style: { foreground: "gray", dim: true } },
+  // Code block labels (language names)
+  { scope: ["label"], style: { foreground: "gray", dim: true } },
+  // Punctuation
+  { scope: ["punctuation.special", "punctuation.delimiter"], style: { foreground: "gray" } },
+  // Escape sequences
+  { scope: ["string.escape"], style: { foreground: "magenta" } },
+];
+
+// Create the SyntaxStyle instance for markdown
+const markdownSyntaxStyle = SyntaxStyle.fromTheme(MARKDOWN_SYNTAX_THEME);
 
 // Pending approval state for HITL
 interface PendingApprovalState {
@@ -18,180 +55,19 @@ interface PendingApprovalState {
   selectedOption: number; // 0 = approve, 1 = reject
 }
 
-// Convert marked tokens to JSX elements
-function tokensToJsx(tokens: Token[]): JSX.Element[] {
-  const elements: JSX.Element[] = [];
-  let key = 0;
-
-  for (const token of tokens) {
-    switch (token.type) {
-      case "heading": {
-        const t = token as Tokens.Heading;
-        if (elements.length > 0) elements.push(<span>{"\n"}</span>);
-        elements.push(
-          <b>
-            <span fg="cyan">{t.text}</span>
-          </b>
-        );
-        elements.push(<span>{"\n"}</span>);
-        break;
-      }
-      case "paragraph": {
-        const t = token as Tokens.Paragraph;
-        if (t.tokens) {
-          elements.push(...inlineTokensToJsx(t.tokens));
-        } else {
-          elements.push(<span>{t.text}</span>);
-        }
-        elements.push(<span>{"\n"}</span>);
-        break;
-      }
-      case "text": {
-        const t = token as Tokens.Text;
-        if (t.tokens) {
-          elements.push(...inlineTokensToJsx(t.tokens));
-        } else {
-          elements.push(<span>{t.text}</span>);
-        }
-        break;
-      }
-      case "code": {
-        const t = token as Tokens.Code;
-        elements.push(<span>{"\n"}</span>);
-        if (t.lang) {
-          elements.push(<span fg="gray" attributes={ATTR_DIM}>[{t.lang}]{"\n"}</span>);
-        }
-        elements.push(<span fg="yellow">{t.text}</span>);
-        elements.push(<span>{"\n"}</span>);
-        break;
-      }
-      case "codespan": {
-        const t = token as Tokens.Codespan;
-        elements.push(<span fg="yellow">{t.text}</span>);
-        break;
-      }
-      case "list": {
-        const t = token as Tokens.List;
-        for (let i = 0; i < t.items.length; i++) {
-          const item = t.items[i];
-          const bullet = t.ordered ? `${i + 1}. ` : "• ";
-          elements.push(<span fg="gray" attributes={ATTR_DIM}>{bullet}</span>);
-          if (item.tokens) {
-            elements.push(...tokensToJsx(item.tokens));
-          } else {
-            elements.push(<span>{item.text}{"\n"}</span>);
-          }
-        }
-        break;
-      }
-      case "list_item": {
-        const t = token as Tokens.ListItem;
-        if (t.tokens) {
-          elements.push(...tokensToJsx(t.tokens));
-        } else {
-          elements.push(<span>{t.text}{"\n"}</span>);
-        }
-        break;
-      }
-      case "blockquote": {
-        const t = token as Tokens.Blockquote;
-        elements.push(<span fg="gray" attributes={ATTR_DIM}>│ </span>);
-        if (t.tokens) {
-          elements.push(...tokensToJsx(t.tokens));
-        } else {
-          elements.push(<span>{t.text}{"\n"}</span>);
-        }
-        break;
-      }
-      case "hr":
-        elements.push(<span fg="gray" attributes={ATTR_DIM}>───────────────────────────────────────{"\n"}</span>);
-        break;
-      case "space":
-        elements.push(<span>{"\n"}</span>);
-        break;
-      default:
-        if ("text" in token && typeof token.text === "string") {
-          elements.push(<span>{token.text}</span>);
-        }
-        if ("raw" in token && typeof token.raw === "string" && !("text" in token)) {
-          elements.push(<span>{token.raw}</span>);
-        }
-    }
-  }
-
-  return elements;
-}
-
-// Convert inline tokens to JSX elements
-function inlineTokensToJsx(tokens: Token[]): JSX.Element[] {
-  const elements: JSX.Element[] = [];
-
-  for (const token of tokens) {
-    switch (token.type) {
-      case "strong": {
-        const t = token as Tokens.Strong;
-        if (t.tokens) {
-          elements.push(<b>{inlineTokensToJsx(t.tokens)}</b>);
-        } else {
-          elements.push(<b>{t.text}</b>);
-        }
-        break;
-      }
-      case "em": {
-        const t = token as Tokens.Em;
-        if (t.tokens) {
-          elements.push(<i>{inlineTokensToJsx(t.tokens)}</i>);
-        } else {
-          elements.push(<i>{t.text}</i>);
-        }
-        break;
-      }
-      case "codespan": {
-        const t = token as Tokens.Codespan;
-        elements.push(<span fg="yellow">{t.text}</span>);
-        break;
-      }
-      case "link": {
-        const t = token as Tokens.Link;
-        elements.push(<span fg="cyan">{t.text}</span>);
-        elements.push(<span fg="gray" attributes={ATTR_DIM}> ({t.href})</span>);
-        break;
-      }
-      case "text": {
-        const t = token as Tokens.Text;
-        elements.push(<span>{t.text}</span>);
-        break;
-      }
-      case "escape": {
-        const t = token as Tokens.Escape;
-        elements.push(<span>{t.text}</span>);
-        break;
-      }
-      default:
-        if ("text" in token && typeof token.text === "string") {
-          elements.push(<span>{token.text}</span>);
-        }
-    }
-  }
-
-  return elements;
-}
-
-function MarkdownText(props: { content: string }): JSX.Element {
-  const tokens = () => {
-    try {
-      return marked.lexer(props.content);
-    } catch {
-      return [];
-    }
-  };
-
+// MarkdownText component using opentui's code component with tree-sitter syntax highlighting
+// This matches opencode's approach to markdown rendering
+function MarkdownText(props: { content: string; streaming?: boolean }): JSX.Element {
   return (
-    <text wrapMode="word">
-      <Show when={tokens().length > 0} fallback={<span>{props.content}</span>}>
-        {tokensToJsx(tokens())}
-      </Show>
-    </text>
+    <code
+      filetype="markdown"
+      content={props.content.trim()}
+      syntaxStyle={markdownSyntaxStyle}
+      conceal={true}
+      drawUnstyledText={false}
+      streaming={props.streaming ?? false}
+      fg="white"
+    />
   );
 }
 
@@ -298,6 +174,17 @@ function App() {
   const [currentTool, setCurrentTool] = createSignal<string | null>(null);
   const [inputValue, setInputValue] = createSignal("");
   const [error, setError] = createSignal<string | null>(null);
+  const [kubeContext, setKubeContext] = createSignal<string>("loading...");
+
+  // Fetch kubectl context on mount
+  onMount(async () => {
+    try {
+      const { stdout } = await execAsync("kubectl config current-context");
+      setKubeContext(stdout.trim());
+    } catch {
+      setKubeContext("not connected");
+    }
+  });
 
   // HITL approval state
   const [pendingApproval, setPendingApproval] = createSignal<PendingApprovalState | null>(null);
@@ -348,6 +235,7 @@ function App() {
         });
         setPendingApproval(null);
         setStatus("complete");
+        toastWarning("Approval expired", "Please retry the operation");
         return;
       }
 
@@ -356,6 +244,7 @@ function App() {
         role: "user",
         content: `✓ Approved: ${approval.command}`,
       });
+      toastSuccess("Command approved");
 
       // Continue the agent with the approval token
       setPendingApproval(null);
@@ -383,6 +272,7 @@ function App() {
       });
       setPendingApproval(null);
       setStatus("complete");
+      toastWarning("Command rejected");
     }
   };
 
@@ -397,9 +287,10 @@ function App() {
         maxSteps: 20,
         onStepFinish: ({ toolCalls, toolResults }) => {
           if (toolCalls && toolCalls.length > 0) {
-            const toolCall = toolCalls[0] as { toolName?: string; args?: unknown };
-            const toolName = toolCall.toolName ?? "tool";
-            const args = toolCall.args ?? {};
+            // Mastra wraps tool calls: toolCall.payload contains the actual data
+            const toolCallChunk = toolCalls[0] as { payload?: { toolName?: string; args?: unknown } };
+            const toolName = toolCallChunk?.payload?.toolName ?? "tool";
+            const args = toolCallChunk?.payload?.args ?? {};
 
             const command = buildDisplayCommand(toolName, args);
 
@@ -449,12 +340,14 @@ function App() {
         ]);
 
         setStatus("complete");
+        toastSuccess("Command executed");
       }
       setCurrentTool(null);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       setError(errorMsg);
       setStatus("error");
+      toastError("Execution failed", errorMsg);
       addMessage({
         role: "assistant",
         content: `Error: ${errorMsg}`,
@@ -466,6 +359,7 @@ function App() {
     setStatus("investigating");
     setError(null);
     setCurrentTool(null);
+    toastInfo("Investigation started", incident.title);
 
     // Add user message to UI
     addMessage({
@@ -500,9 +394,10 @@ function App() {
           const { toolCalls, toolResults } = stepResult;
 
           if (toolCalls && toolCalls.length > 0) {
-            const toolCall = toolCalls[0] as { toolName?: string; args?: unknown };
-            const toolName = toolCall.toolName ?? "tool";
-            const args = toolCall.args ?? {};
+            // Mastra wraps tool calls: toolCall.payload contains the actual data
+            const toolCallChunk = toolCalls[0] as { payload?: { toolName?: string; args?: unknown } };
+            const toolName = toolCallChunk?.payload?.toolName ?? "tool";
+            const args = toolCallChunk?.payload?.args ?? {};
 
             // Build display command based on tool type
             const command = buildDisplayCommand(toolName, args);
@@ -556,12 +451,14 @@ function App() {
         ]);
 
         setStatus("complete");
+        toastSuccess("Investigation complete");
       }
       setCurrentTool(null);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       setError(errorMsg);
       setStatus("error");
+      toastError("Investigation failed", errorMsg);
       addMessage({
         role: "assistant",
         content: `Error: ${errorMsg}`,
@@ -623,16 +520,29 @@ function App() {
         borderColor="red"
         paddingLeft={2}
         paddingRight={2}
-        flexDirection="row"
-        justifyContent="space-between"
+        paddingTop={1}
+        paddingBottom={1}
+        flexDirection="column"
       >
-        <text fg="red" attributes={ATTR_BOLD}>
-          TRIAGENT
-        </text>
-        <text fg="gray">Kubernetes Debugging Agent</text>
-        <text fg={getStatusColor()} attributes={ATTR_BOLD}>
-          [{getStatusText()}]
-        </text>
+        <box flexDirection="row" justifyContent="space-between">
+          <box flexDirection="row" gap={2}>
+            <text fg="red" attributes={ATTR_BOLD}>
+              ☸
+            </text>
+            <text fg="red" attributes={ATTR_BOLD}>
+              TRIAGENT
+            </text>
+          </box>
+          <text fg={getStatusColor()} attributes={ATTR_BOLD}>
+            [{getStatusText()}]
+          </text>
+        </box>
+        <box flexDirection="row" justifyContent="space-between">
+          <text fg="gray">Kubernetes Debugging Agent</text>
+          <text fg="cyan">
+            cluster: {kubeContext()}
+          </text>
+        </box>
       </box>
 
       {/* Messages Area */}
@@ -673,7 +583,7 @@ function App() {
                         when={(status() === "investigating" || status() === "awaiting_approval") && msg.id === messages().filter(m => m.role === "tool").at(-1)?.id}
                         fallback={<text fg="green">✓</text>}
                       >
-                        <Show when={status() === "awaiting_approval"} fallback={<spinner name="dots" color="blue" />}>
+                        <Show when={status() === "awaiting_approval"} fallback={<spinner name="dots" color={createPulse(["cyan", "blue", "magenta"], 200)} />}>
                           <text fg="yellow">⏸</text>
                         </Show>
                       </Show>
@@ -699,7 +609,7 @@ function App() {
 
             {/* Approval prompt - Claude Code style */}
             <Show when={pendingApproval()}>
-              {(approval) => (
+              {(approval: Accessor<PendingApprovalState>) => (
                 <box
                   flexDirection="column"
                   borderStyle="single"
@@ -880,7 +790,13 @@ export interface TUIHandle {
 }
 
 export async function runTUI(): Promise<TUIHandle> {
-  await render(() => <App />);
+  await render(() => (
+    <ToastProvider>
+      <ApprovalDialogProvider>
+        <App />
+      </ApprovalDialogProvider>
+    </ToastProvider>
+  ));
 
   return {
     shutdown: () => {

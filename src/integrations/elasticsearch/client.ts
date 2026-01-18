@@ -36,7 +36,7 @@ export class ElasticsearchClient {
 
   private async request<T>(
     endpoint: string,
-    options?: RequestInit & { body?: unknown }
+    options?: Omit<RequestInit, 'body'> & { body?: unknown }
   ): Promise<T> {
     const headers: Record<string, string> = {
       "Accept": "application/json",
@@ -104,14 +104,17 @@ export class ElasticsearchClient {
     });
 
     return result.hits.hits.map((hit) => {
-      const source = hit._source;
+      const source = hit._source as Record<string, unknown>;
+      const k8s = source.kubernetes as Record<string, unknown> | undefined;
+      const k8sPod = k8s?.pod as Record<string, unknown> | undefined;
+      const k8sContainer = k8s?.container as Record<string, unknown> | undefined;
       return {
         timestamp: (source["@timestamp"] as string) || new Date().toISOString(),
         message: (source.message as string) || JSON.stringify(source),
         level: source.level as string | undefined,
-        pod: (source.kubernetes?.pod?.name || source.pod) as string | undefined,
-        namespace: (source.kubernetes?.namespace || source.namespace) as string | undefined,
-        container: (source.kubernetes?.container?.name || source.container) as string | undefined,
+        pod: (k8sPod?.name || source.pod) as string | undefined,
+        namespace: (k8s?.namespace || source.namespace) as string | undefined,
+        container: (k8sContainer?.name || source.container) as string | undefined,
         ...source,
       };
     });

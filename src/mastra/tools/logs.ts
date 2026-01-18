@@ -35,8 +35,8 @@ The query syntax depends on the configured log provider:
     count: z.number().optional(),
     error: z.string().optional(),
   }),
-  execute: async ({ context }) => {
-    const { operation, query, timeRange, limit, aggregateField } = context;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (async ({ operation, query, timeRange, limit, aggregateField }: any) => {
 
     try {
       const esClient = getElasticsearchClient();
@@ -177,7 +177,7 @@ The query syntax depends on the configured log provider:
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  },
+  }) as any,
 });
 
 function parseRelativeTime(timeStr: string): string {

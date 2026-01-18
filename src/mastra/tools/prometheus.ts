@@ -31,8 +31,8 @@ Example queries:
     data: z.string(),
     error: z.string().optional(),
   }),
-  execute: async ({ context }) => {
-    const { operation, query, start, end, step, dashboardSearch } = context;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (async ({ operation, query, start, end, step, dashboardSearch }: any) => {
 
     try {
       const prometheusClient = getPrometheusClient();
@@ -192,7 +192,7 @@ Example queries:
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  },
+  }) as any,
 });
 
 function parseRelativeTime(timeStr: string): string {

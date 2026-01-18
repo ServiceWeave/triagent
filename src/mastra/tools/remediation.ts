@@ -167,8 +167,8 @@ Available action types:
     riskLevel: z.enum(["low", "medium", "high", "critical"]).optional(),
     error: z.string().optional(),
   }),
-  execute: async ({ context }) => {
-    const { operation, action, approvalToken } = context;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: (async ({ operation, action, approvalToken }: any) => {
 
     try {
       switch (operation) {
@@ -361,5 +361,5 @@ ${result.output}`,
         error: error instanceof Error ? error.message : String(error),
       };
     }
-  },
+  }) as any,
 });
