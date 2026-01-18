@@ -1,6 +1,6 @@
 /* @jsxImportSource @opentui/solid */
 import { render } from "@opentui/solid";
-import { createSignal, For, Show, onMount, createMemo, type JSX, type Accessor } from "solid-js";
+import { createSignal, For, Show, onMount, type JSX, type Accessor } from "solid-js";
 import { createTextAttributes, SyntaxStyle, type ThemeTokenStyle } from "@opentui/core";
 import "opentui-spinner/solid";
 import { createPulse } from "opentui-spinner";
