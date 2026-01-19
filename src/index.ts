@@ -11,15 +11,17 @@ import {
   saveStoredConfig,
   getConfigPath,
   maskApiKey,
+  mergeConfigFromFile,
   type StoredConfig,
 } from "./cli/config.js";
 import type { AIProvider } from "./config.js";
 
 interface CliArgs {
   command: "run" | "config" | "cluster";
-  configAction?: "set" | "get" | "list" | "path";
+  configAction?: "set" | "get" | "list" | "path" | "load";
   configKey?: string;
   configValue?: string;
+  configFilePath?: string;
   clusterAction?: "add" | "remove" | "list" | "use" | "status";
   clusterName?: string;
   clusterContext?: string;
@@ -46,9 +48,13 @@ function parseArgs(): CliArgs {
   // Check for config subcommand
   if (args[0] === "config") {
     result.command = "config";
-    result.configAction = args[1] as "set" | "get" | "list" | "path";
-    result.configKey = args[2];
-    result.configValue = args[3];
+    result.configAction = args[1] as "set" | "get" | "list" | "path" | "load";
+    if (result.configAction === "load") {
+      result.configFilePath = args[2];
+    } else {
+      result.configKey = args[2];
+      result.configValue = args[3];
+    }
     return result;
   }
 
@@ -116,6 +122,7 @@ CONFIG COMMANDS:
   triagent config get <key>          Get a configuration value
   triagent config list               List all configuration values
   triagent config path               Show config file path
+  triagent config load <file>        Load configuration from a JSON file
 
 CONFIG KEYS:
   aiProvider     - AI provider (openai, anthropic, google)
@@ -453,8 +460,39 @@ async function handleConfigCommand(args: CliArgs): Promise<void> {
       console.log(path);
       break;
     }
+    case "load": {
+      if (!args.configFilePath) {
+        console.error("Usage: triagent config load <file>");
+        process.exit(1);
+      }
+      try {
+        const mergedConfig = await mergeConfigFromFile(args.configFilePath);
+        console.log(`✅ Configuration loaded from ${args.configFilePath}`);
+        console.log("\nMerged configuration:");
+        for (const [key, value] of Object.entries(mergedConfig)) {
+          if (value === undefined) continue;
+          if (key === "apiKey") {
+            console.log(`  ${key}: ${maskApiKey(String(value))}`);
+          } else if (typeof value === "object") {
+            console.log(`  ${key}: ${JSON.stringify(value)}`);
+          } else {
+            console.log(`  ${key}: ${value}`);
+          }
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          console.error(`❌ File not found: ${args.configFilePath}`);
+        } else if (error instanceof SyntaxError) {
+          console.error(`❌ Invalid JSON in file: ${args.configFilePath}`);
+        } else {
+          console.error(`❌ Failed to load config: ${error}`);
+        }
+        process.exit(1);
+      }
+      break;
+    }
     default:
-      console.error("Usage: triagent config <set|get|list|path> [key] [value]");
+      console.error("Usage: triagent config <set|get|list|path|load> [key] [value]");
       process.exit(1);
   }
 }

@@ -175,3 +175,17 @@ export function maskApiKey(key: string): string {
   if (key.length <= 8) return "****";
   return key.slice(0, 4) + "****" + key.slice(-4);
 }
+
+export async function loadConfigFromFile(filePath: string): Promise<StoredConfig> {
+  const content = await readFile(filePath, "utf-8");
+  const importedConfig = JSON.parse(content) as StoredConfig;
+  return importedConfig;
+}
+
+export async function mergeConfigFromFile(filePath: string): Promise<StoredConfig> {
+  const importedConfig = await loadConfigFromFile(filePath);
+  const existingConfig = await loadStoredConfig();
+  const mergedConfig = { ...existingConfig, ...importedConfig };
+  await saveStoredConfig(mergedConfig);
+  return mergedConfig;
+}
