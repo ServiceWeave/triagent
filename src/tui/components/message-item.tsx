@@ -80,16 +80,9 @@ export function MessageItem(props: MessageItemProps): JSX.Element {
       {/* User message - left border, no label (opencode style) */}
       <Show when={message.role === "user"}>
         <box flexDirection="column">
-          {/* Message with left border */}
-          <box
-            borderStyle="single"
-            borderLeft={true}
-            borderRight={false}
-            borderTop={false}
-            borderBottom={false}
-            borderColor={colors.border.muted}
-            paddingLeft={1}
-          >
+          {/* Message with left border using text character */}
+          <box flexDirection="row">
+            <text fg={colors.border.muted}>│ </text>
             <text fg={colors.text.primary}>{message.content}</text>
           </box>
           {/* Spinner during investigation (shown below user message) */}

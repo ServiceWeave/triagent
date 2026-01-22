@@ -254,6 +254,24 @@ async function runDirectIncident(description: string): Promise<void> {
 import { initClusterManager, getClusterManager } from "./integrations/kubernetes/multi-cluster.js";
 import type { ClusterConfig } from "./cli/config.js";
 
+/** Parse remote target string: user@host[:port] */
+function parseRemoteTarget(target: string): { user: string; host: string; port?: number } {
+  let user = "root";
+  let host = target;
+  let port: number | undefined;
+
+  if (target.includes("@")) {
+    [user, host] = target.split("@");
+  }
+  if (host.includes(":")) {
+    const parts = host.split(":");
+    host = parts[0];
+    port = parseInt(parts[1], 10);
+  }
+
+  return { user, host, port };
+}
+
 async function handleClusterCommand(args: CliArgs): Promise<void> {
   const config = await loadStoredConfig();
   const clusterManager = initClusterManager(config.clusters, config.activeCluster);
@@ -536,11 +554,17 @@ async function main(): Promise<void> {
 
   // Initialize sandbox and Mastra
   try {
-    const sandboxOptions: { useHost?: boolean; remote?: { target: string } } = {};
+    const sandboxOptions: {
+      useHost?: boolean;
+      backend?: "docker" | "ssh";
+      ssh?: { host: string; user: string; port?: number };
+    } = {};
     if (args.host) {
       sandboxOptions.useHost = true;
     } else if (args.remote) {
-      sandboxOptions.remote = { target: args.remote };
+      const { user, host, port } = parseRemoteTarget(args.remote);
+      sandboxOptions.backend = "ssh";
+      sandboxOptions.ssh = { host, user, port };
     }
 
     await initSandboxFromConfig(config, sandboxOptions);
