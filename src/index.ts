@@ -16,6 +16,8 @@ import {
 } from "./cli/config.js";
 import type { AIProvider } from "./config.js";
 
+type SandboxBackend = "docker" | "ssh" | "wasm" | "microvm" | "auto";
+
 interface CliArgs {
   command: "run" | "config" | "cluster";
   configAction?: "set" | "get" | "list" | "path" | "load";
@@ -31,7 +33,8 @@ interface CliArgs {
   incident: string | null;
   help: boolean;
   host: boolean;
-  remote: string | null;
+  backend: SandboxBackend | null;
+  sshTarget: string | null; // user@host[:port] for ssh backend
 }
 
 function parseArgs(): CliArgs {
@@ -42,7 +45,8 @@ function parseArgs(): CliArgs {
     incident: null,
     help: false,
     host: false,
-    remote: null,
+    backend: null,
+    sshTarget: null,
   };
 
   // Check for config subcommand
@@ -93,8 +97,15 @@ function parseArgs(): CliArgs {
       result.help = true;
     } else if (arg === "--host") {
       result.host = true;
-    } else if (arg === "--remote" || arg === "-r") {
-      result.remote = args[++i] || null;
+    } else if (arg === "--backend" || arg === "-b") {
+      const backend = args[++i] as SandboxBackend;
+      if (backend && ["docker", "ssh", "wasm", "microvm", "auto"].includes(backend)) {
+        result.backend = backend;
+        // For ssh backend, next arg is user@host[:port]
+        if (backend === "ssh" && args[i + 1] && !args[i + 1].startsWith("-")) {
+          result.sshTarget = args[++i];
+        }
+      }
     }
   }
 
@@ -115,7 +126,8 @@ OPTIONS:
   -w, --webhook-only  Run only the webhook server (no TUI)
   -i, --incident      Direct incident input (runs once and exits)
       --host          Run commands on host machine (no sandbox)
-  -r, --remote        Run commands on remote server via SSH (user@host)
+  -b, --backend       Sandbox backend: docker (default), wasm, microvm, auto,
+                      or "ssh user@host[:port]" for remote execution
 
 CONFIG COMMANDS:
   triagent config set <key> <value>  Set a configuration value
@@ -196,7 +208,10 @@ EXAMPLES:
   triagent -i "API gateway returning 503 errors"
 
   # Run commands on a remote server via SSH
-  triagent --remote user@debug-container.local
+  triagent --backend ssh user@debug-container.local
+
+  # Use WebAssembly sandbox
+  triagent --backend wasm
 
   # Multi-cluster management
   triagent cluster add prod --context prod-cluster -e production
@@ -547,8 +562,14 @@ async function main(): Promise<void> {
   }
 
   // Validate mutually exclusive options
-  if (args.host && args.remote) {
-    console.error("❌ Cannot use --host and --remote together");
+  if (args.host && args.backend) {
+    console.error("❌ Cannot use --host and --backend together");
+    process.exit(1);
+  }
+
+  // Validate ssh backend requires target
+  if (args.backend === "ssh" && !args.sshTarget) {
+    console.error("❌ SSH backend requires target: --backend ssh user@host[:port]");
     process.exit(1);
   }
 
@@ -556,27 +577,34 @@ async function main(): Promise<void> {
   try {
     const sandboxOptions: {
       useHost?: boolean;
-      backend?: "docker" | "ssh";
+      backend?: SandboxBackend;
       ssh?: { host: string; user: string; port?: number };
     } = {};
+
     if (args.host) {
       sandboxOptions.useHost = true;
-    } else if (args.remote) {
-      const { user, host, port } = parseRemoteTarget(args.remote);
-      sandboxOptions.backend = "ssh";
-      sandboxOptions.ssh = { host, user, port };
+    } else if (args.backend) {
+      sandboxOptions.backend = args.backend;
+      if (args.backend === "ssh" && args.sshTarget) {
+        const { user, host, port } = parseRemoteTarget(args.sshTarget);
+        sandboxOptions.ssh = { host, user, port };
+      }
     }
 
     await initSandboxFromConfig(config, sandboxOptions);
     await createMastraInstance(config);
 
+    // Log execution mode
     if (args.host) {
       console.log("⚠️  Running in host mode (no sandbox)\n");
-    } else if (args.remote) {
+    } else if (args.backend === "ssh") {
       const { getRemoteInfo } = await import("./sandbox/bashlet.js");
       const info = getRemoteInfo();
-      console.log(`🌐 Running in remote mode: ${args.remote}`);
-      console.log(`   Workspace: ${info?.workdir} (session: ${info?.sessionId})\n`);
+      console.log(`🌐 Running in remote mode: ${args.sshTarget}`);
+      console.log(`   Workspace: ${info?.workdir}\n`);
+    } else {
+      const backend = args.backend || "docker";
+      console.log(`🔒 Running in sandbox mode (${backend})\n`);
     }
   } catch (error) {
     console.error("❌ Initialization error:", error);

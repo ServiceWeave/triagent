@@ -14,8 +14,8 @@ export interface SandboxOptions {
   kubeConfigPath: string;
   timeout?: number;
   useHost?: boolean;
-  /** Backend to use: 'docker' (default) or 'ssh' */
-  backend?: "docker" | "ssh";
+  /** Backend to use: 'docker' (default), 'ssh', 'wasm', 'microvm', or 'auto' */
+  backend?: "docker" | "ssh" | "wasm" | "microvm" | "auto";
   /** SSH configuration (required when backend='ssh') */
   ssh?: {
     host: string;
@@ -25,20 +25,45 @@ export interface SandboxOptions {
   };
 }
 
+// Map user-friendly backend names to Bashlet SDK names
+type BashletBackend = "wasmer" | "firecracker" | "docker" | "ssh" | "auto";
+const backendMap: Record<NonNullable<SandboxOptions["backend"]>, BashletBackend> = {
+  wasm: "wasmer",
+  microvm: "firecracker",
+  docker: "docker",
+  ssh: "ssh",
+  auto: "auto",
+};
+
 // Sandbox state
 let bashletInstance: Bashlet | null = null;
 let hostMode = false;
 let hostWorkdir = "./";
-let sshMode = false;
-let sshWorkdir = "/workspace";
+let currentBackend: SandboxOptions["backend"] | null = null;
 
 export async function createSandbox(options: SandboxOptions): Promise<void> {
   hostMode = options.useHost ?? false;
   hostWorkdir = options.codebasePaths[0]?.path || "./";
 
-  // Handle SSH backend mode
-  if (options.backend === "ssh" && options.ssh) {
-    sshMode = true;
+  // Host mode: bypass Bashlet entirely
+  if (hostMode) {
+    return;
+  }
+
+  // Reuse existing instance if already initialized
+  if (bashletInstance) {
+    return;
+  }
+
+  const backend = options.backend || "docker";
+  currentBackend = backend;
+  const bashletBackend = backendMap[backend];
+
+  // SSH backend requires special configuration
+  if (backend === "ssh") {
+    if (!options.ssh) {
+      throw new Error("SSH configuration required when using ssh backend");
+    }
 
     const sshOptions: SshOptions = {
       host: options.ssh.host,
@@ -50,30 +75,23 @@ export async function createSandbox(options: SandboxOptions): Promise<void> {
     };
 
     bashletInstance = new Bashlet({
-      backend: "ssh",
+      backend: bashletBackend,
       ssh: sshOptions,
-      workdir: sshWorkdir,
+      workdir: "/workspace",
       timeout: options.timeout || 120,
     });
 
     return;
   }
 
-  if (hostMode) {
-    return;
-  }
-
-  if (bashletInstance) {
-    return;
-  }
-
-  // Mount each codebase at /workspace/<name>
+  // All other backends (docker, wasm, microvm, auto) use mounts
   const codebaseMounts = options.codebasePaths.map((entry) => ({
     hostPath: entry.path,
     guestPath: `/workspace/${entry.name}`,
   }));
 
   bashletInstance = new Bashlet({
+    backend: bashletBackend,
     mounts: [
       ...codebaseMounts,
       { hostPath: options.kubeConfigPath, guestPath: "/root/.kube" },
@@ -92,13 +110,17 @@ export function isHostMode(): boolean {
 }
 
 export function isRemoteMode(): boolean {
-  return sshMode;
+  return currentBackend === "ssh";
 }
 
-export function getRemoteInfo(): { target: string; workdir: string; sessionId: string } | null {
-  if (!sshMode || !bashletInstance) return null;
-  // Return a placeholder - actual SSH details are managed by bashlet
-  return { target: "ssh", workdir: sshWorkdir, sessionId: "bashlet-ssh" };
+export function getBackend(): SandboxOptions["backend"] | "host" | null {
+  if (hostMode) return "host";
+  return currentBackend;
+}
+
+export function getRemoteInfo(): { target: string; workdir: string } | null {
+  if (currentBackend !== "ssh" || !bashletInstance) return null;
+  return { target: "ssh", workdir: "/workspace" };
 }
 
 export async function execCommand(command: string): Promise<CommandResult> {
@@ -202,7 +224,7 @@ export async function initSandboxFromConfig(
   config: Config,
   options: {
     useHost?: boolean;
-    backend?: "docker" | "ssh";
+    backend?: "docker" | "ssh" | "wasm" | "microvm" | "auto";
     ssh?: { host: string; user: string; port?: number; keyFile?: string };
   } = {}
 ): Promise<void> {
