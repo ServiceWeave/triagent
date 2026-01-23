@@ -33,39 +33,36 @@ triagent --incident "API gateway returning 503 errors"
 
 ## Execution Modes
 
-Triagent supports three execution modes for running commands:
+Triagent supports multiple execution modes via [Bashlet](https://github.com/anthropics/bashlet), plus a host mode that bypasses sandboxing entirely.
 
-### Sandbox Mode (Default)
-
-Commands run inside a Docker container via [Bashlet](https://github.com/anthropics/bashlet). This provides isolation and safety - the agent cannot accidentally modify your host system.
+### Sandbox Backends (via Bashlet)
 
 ```bash
-triagent
+triagent                                    # Docker (default)
+triagent --backend docker                   # Docker container
+triagent --backend wasm                     # WebAssembly sandbox
+triagent --backend microvm                  # MicroVM isolation (Firecracker)
+triagent --backend auto                     # Let Bashlet choose best available
+triagent --backend ssh user@host[:port]     # SSH to remote server
 ```
 
 Codebases are mounted at `/workspace/<name>` and kubeconfig at `/root/.kube`.
 
 ### Host Mode
 
-Commands run directly on your local machine. Use this when you need access to tools not available in the sandbox.
+Commands run directly on your local machine, bypassing Bashlet entirely. Use this when you need access to tools not available in the sandbox.
 
 ```bash
 triagent --host
 ```
 
-### Remote Mode
+### SSH Backend
 
-Commands run on a remote server via SSH. This is useful for connecting to a Docker container or VM with pre-installed debugging tools.
+The SSH backend runs commands on a remote server. This is useful for connecting to a Docker container or VM with pre-installed debugging tools.
 
 ```bash
-triagent --remote user@host
-triagent -r root@debug-container.local
-```
-
-On startup, triagent creates a session workspace on the remote:
-```
-🌐 Running in remote mode: root@debug-container.local
-   Workspace: /tmp/triagent-a3b4c5d6 (session: a3b4c5d6)
+triagent --backend ssh user@host
+triagent --backend ssh root@debug-container.local:2222
 ```
 
 **Requirements:**
@@ -88,7 +85,7 @@ docker run -d --name debug-tools \
 #   User root
 
 # Connect triagent to it
-triagent --remote debug-tools
+triagent --backend ssh debug-tools
 ```
 
 ## Configuration
